@@ -318,6 +318,35 @@ class HomePageState extends State<HomePage> {
                               style: TextStyle(color: Colors.red),
                             ),
                           ],
+                          // session manager button
+                          const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon (Icons.settings),
+                      label: const Text('Session Manager'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color.fromARGB(255, 25, 154, 163),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12)),
+                        onPressed: () {
+                          // TODO: Implement navigation to session manager page
+                          logger.i('Session Manager button pressed');
+                          Navigator.pushNamed(context, AppRoutes.courseList);
+                        },
+                        ),
+                        ),
+    
+                        const SizedBox(height: 4), // Small space after button
+
+                        const Text(
+                          'Manage and create your own sessions.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color.fromARGB(255, 114, 114, 114), // Adjusted color
+                            ),
+                            ),
+
                         ],
                       ),
                     ),
