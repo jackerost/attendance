@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../main.dart';
 
 class CourseListPage extends StatefulWidget {
   const CourseListPage({super.key});
@@ -8,14 +10,52 @@ class CourseListPage extends StatefulWidget {
 }
 
 class CourseListState extends State<CourseListPage> {
-  // Sample course data - replace with your Firestore data
-  List<Map<String, dynamic>> courses = [
-    {'courseTitle': 'Flutter Development', 'courseId': 'FLT001'},
-    {'courseTitle': 'Dart Programming', 'courseId': 'DRT002'},
-    {'courseTitle': 'Mobile App Design', 'courseId': 'MAD003'},
-    {'courseTitle': 'Firebase Integration', 'courseId': 'FIR004'},
-    {'courseTitle': 'State Management', 'courseId': 'STM005'},
-  ];
+  // This list will hold our Firestore data
+  List<Map<String, dynamic>> courses = [];
+  bool isLoading = true; // Track loading state
+  String errorMessage = ''; // Track any errors
+
+  @override
+  void initState() {
+    super.initState();
+    // Load courses when the page initializes
+    loadCourses();
+  }
+
+  // Function to load courses from Firestore
+  Future<void> loadCourses() async {
+    try {
+      setState(() {
+        isLoading = true;
+        errorMessage = '';
+      });
+
+      // Query Firestore collection - replace 'courses' with your collection name
+      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
+          .collection('sections') // Replace with your collection name
+          .get();
+
+      // Convert Firestore documents to our course list
+      List<Map<String, dynamic>> loadedCourses = [];
+      for (QueryDocumentSnapshot doc in querySnapshot.docs) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        // Add document ID to the data in case you need it
+        data['documentId'] = doc.id;
+        loadedCourses.add(data);
+      }
+
+      setState(() {
+        courses = loadedCourses;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        errorMessage = 'Error loading courses: $e';
+        isLoading = false;
+      });
+      print('Error loading courses: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +95,7 @@ class CourseListState extends State<CourseListPage> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   child: const Text(
-                    'COURSES',
+                    'CLASS SECTIONS',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -63,64 +103,92 @@ class CourseListState extends State<CourseListPage> {
                     ),
                   ),
                 ),
-                // Course List
+                // Course List with loading and error handling
                 Container(
                   constraints: BoxConstraints(
                     maxHeight: MediaQuery.of(context).size.height * 0.5,
                   ),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: courses.length,
-                    itemBuilder: (context, index) {
-                      return Container(
-                        margin: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[300],
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: ListTile(
-                          title: Text(
-                            courses[index]['courseTitle'],
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
+                  child: isLoading
+                      ? // Show loading indicator while data is being fetched
+                      const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(20.0),
+                            child: CircularProgressIndicator(),
                           ),
-                          subtitle: Text(
-                            courses[index]['courseId'],
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          trailing: IconButton(
-                            icon: const Icon(
-                              Icons.settings,
-                              color: Colors.grey,
-                              size: 20,
-                            ),
-                            onPressed: () {
-                              // Navigate to course details/classes page
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    'Navigate to classes for ${courses[index]['courseTitle']}',
-                                  ),
+                        )
+                      : errorMessage.isNotEmpty
+                          ? // Show error message if something went wrong
+                          Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(20.0),
+                                child: Text(
+                                  errorMessage,
+                                  style: const TextStyle(color: Colors.red),
+                                  textAlign: TextAlign.center,
                                 ),
-                              );
-                            },
-                          ),
-                          onTap: () {
-                            // Optional: Handle course selection
-                            print('Selected course: ${courses[index]['courseTitle']}');
-                          },
-                        ),
-                      );
-                    },
-                  ),
+                              ),
+                            )
+                          : courses.isEmpty
+                              ? // Show message when no courses are found
+                              const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(20.0),
+                                    child: Text('No courses found'),
+                                  ),
+                                )
+                              : // Show the actual course list
+                              ListView.builder(
+                                  shrinkWrap: true,
+                                  itemCount: courses.length,
+                                  itemBuilder: (context, index) {
+                                    // Get individual course data
+                                    Map<String, dynamic> course = courses[index];
+                                    
+                                    return Container(
+                                      margin: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[300],
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: ListTile(
+                                        // Display section title from Firestore
+                                        title: Text(
+                                          course['sectionTitle'] ?? 'No Title',
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        // Display course ID from Firestore
+                                        subtitle: Text(
+                                          course['courseId'] ?? 'No ID',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey[600],
+                                          ),
+                                        ),
+                                        trailing: const Icon(
+                                            Icons.settings,
+                                            color: Colors.grey,
+                                            size: 20,
+                                        ),
+                                        onTap: () {
+                                          Navigator.pushNamed(
+                                            context,
+                                            AppRoutes.sessionPage,  // This resolves to '/session-page'
+                                            arguments: {
+                                              'courseId': course['courseId'],
+                                              'documentId': course['documentId'],
+                                              },
+                                              );
+                                              },
+                                      ),
+                                    );
+                                  },
+                                ),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -163,21 +231,43 @@ class CourseListState extends State<CourseListPage> {
   }
 }
 
-// Example of how you might structure your Firestore data fetching
-class FirestoreService {
-  // Placeholder for Firestore integration
-  Future<List<Map<String, dynamic>>> getCourses() async {
-    // Replace this with actual Firestore query
-    // Example:
-    // QuerySnapshot snapshot = await FirebaseFirestore.instance
-    //     .collection('courses')
-    //     .get();
-    // return snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
-    
-    return [
-      {'courseTitle': 'Flutter Development', 'courseId': 'FLT001'},
-      {'courseTitle': 'Dart Programming', 'courseId': 'DRT002'},
-      {'courseTitle': 'Mobile App Design', 'courseId': 'MAD003'},
-    ];
+// Additional helper methods for more advanced Firestore operations
+extension CourseListPageExtensions on CourseListState {
+  
+  // Method to refresh the course list (useful for pull-to-refresh)
+  Future<void> refreshCourses() async {
+    await loadCourses();
+  }
+  
+  // Method to filter courses by a specific field (optional)
+  Future<void> loadCoursesByFilter(String field, dynamic value) async {
+    try {
+      setState(() {
+        isLoading = true;
+        errorMessage = '';
+      });
+
+      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
+          .collection('sections')
+          .where(field, isEqualTo: value)
+          .get();
+
+      List<Map<String, dynamic>> loadedCourses = [];
+      for (QueryDocumentSnapshot doc in querySnapshot.docs) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        data['documentId'] = doc.id;
+        loadedCourses.add(data);
+      }
+
+      setState(() {
+        courses = loadedCourses;
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        errorMessage = 'Error loading filtered courses: $e';
+        isLoading = false;
+      });
+    }
   }
 }
