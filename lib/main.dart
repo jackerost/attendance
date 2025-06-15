@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'pages/login_page.dart';
 import 'pages/home_page.dart';
 import 'pages/nfc_scanner_page.dart';
+import 'pages/selection_page.dart';
 
 // Import services
 import 'services/firebase_auth_service.dart';
@@ -55,6 +56,10 @@ class MyApp extends StatelessWidget {
           AppRoutes.login: (context) => const LoginPage(),
           AppRoutes.home: (context) => const HomePage(),
           AppRoutes.nfcScanner: (context) => const NFCScannerPage(),
+          AppRoutes.selector: (context) {
+            final sessionId = ModalRoute.of(context)!.settings.arguments as String;
+            return SelectionPage(sessionId: sessionId);
+            }
         },
         // If route isn't found, redirect to login
         onUnknownRoute: (settings) {
@@ -102,6 +107,7 @@ class AppRoutes {
   static const String login = '/login';
   static const String home = '/home';
   static const String nfcScanner = '/nfc-scanner';
+  static const String selector = '/select-page';
   
   // Prevent instantiation
   AppRoutes._();

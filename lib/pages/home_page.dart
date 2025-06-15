@@ -114,19 +114,19 @@ class HomePageState extends State<HomePage> {
               startTime.toDate().isBefore(currentTime.toDate()) &&
               endTime.toDate().isAfter(currentTime.toDate())) {
             if (mounted) {
-              logger.i('Navigating to NFC scanner with session ID: $_activeSessionId');
+              logger.i('Navigating to selector page with session ID: $_activeSessionId');
               try {
                 await Navigator.pushNamed(
                   context,
-                  AppRoutes.nfcScanner, // Now resolves to /nfc-scanner from main.dart
+                  AppRoutes.selector, // Now resolves to /select-page from main.dart
                   arguments: _activeSessionId,
                 ).then((_) => _handleScannerReturn());
               } catch (e) {
-                logger.e('Navigation to NFC scanner failed: $e');
+                logger.e('Navigation to selector failed: $e');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Failed to navigate to scanner: $e'),
+                      content: Text('Failed to navigate to scanner selection: $e'),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -165,19 +165,19 @@ class HomePageState extends State<HomePage> {
         });
 
         if (mounted) {
-          logger.i('Navigating to NFC scanner with session ID: $_activeSessionId');
+          logger.i('Navigating to selector with session ID: $_activeSessionId');
           try {
             await Navigator.pushNamed(
               context,
-              AppRoutes.nfcScanner, // Now resolves to /nfc-scanner from main.dart
+              AppRoutes.selector, // Now resolves to /select-page from main.dart
               arguments: _activeSessionId,
             ).then((_) => _handleScannerReturn());
           } catch (e) {
-            logger.e('Navigation to NFC scanner failed: $e');
+            logger.e('Navigation to selector failed: $e');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Failed to navigate to scanner: $e'),
+                  content: Text('Failed to navigate to scanner selection: $e'),
                   backgroundColor: Colors.red,
                 ),
               );
