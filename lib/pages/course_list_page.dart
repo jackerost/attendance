@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../main.dart';
 
 class CourseListPage extends StatefulWidget {
@@ -30,9 +31,19 @@ class CourseListState extends State<CourseListPage> {
         errorMessage = '';
       });
 
-      // Query Firestore collection - replace 'courses' with your collection name
+      //get logged in users uid
+      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+      //if null uid, dont show courses and exit
+      if (currentUid == null) {
+        setState(() { isLoading = false; });
+        return;
+      }
+
+      // Query Firestore collection 
       QuerySnapshot querySnapshot = await FirebaseFirestore.instance
-          .collection('sections') // Replace with your collection name
+          .collection('sections') // collection name
+          .where('lecturerEmail', isEqualTo: currentUid) // Filter by the lecturer's UID
           .get();
 
       // Convert Firestore documents to our course list

@@ -144,12 +144,12 @@ class HomePageState extends State<HomePage> {
         }
       }
 
-      // Look for a session within the current timeframe
+      // Look for a session within the current timeframe on firestore database
       final QuerySnapshot sessionSnapshot = await FirebaseFirestore.instance
           .collection(FirestorePaths.sessions)
           .where('startTime', isLessThanOrEqualTo: currentTime)
           .where('endTime', isGreaterThanOrEqualTo: currentTime)
-          .where('lecturerEmail', isEqualTo: _auth.currentUser!.email)
+          .where('lecturerEmail', isEqualTo: _auth.currentUser!.uid)
           .limit(1)
           .get();
 

@@ -156,12 +156,12 @@ class AttendanceService {
   /// Retrieves all sessions assigned to the currently logged-in lecturer
   Future<List<DocumentSnapshot>> getLecturerSessions() async {
     try {
-      final lecturerEmail = _auth.currentUser?.email;
-      if (lecturerEmail == null) return [];
+      final lecturerUid = _auth.currentUser?.uid; //.uid so uses uid
+      if (lecturerUid == null) return [];
 
       final sectionsSnapshot = await _firestore
           .collection(FirestorePaths.sections)
-          .where('lecturerEmail', isEqualTo: lecturerEmail)
+          .where('lecturerEmail', isEqualTo: lecturerUid) //now field lecturerEmail uses uid
           .get();
 
       final sectionIds = sectionsSnapshot.docs.map((doc) => doc.id).toList();
