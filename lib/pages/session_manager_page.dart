@@ -358,16 +358,16 @@ class SessionManagerState extends State<SessionManagerPage> {
   }
 
   Future<void> _createSession(String title, String venue, DateTime startTime, DateTime endTime) async {
-    try {
-      final newStartTime = Timestamp.fromDate(startTime);
-      final newEndTime = Timestamp.fromDate(endTime);
-      final sessionSnapshot = await _firestore
-      .collection('sessions')
-      .where('lecturerEmail', isEqualTo: _lecturerUid)
-      .where('sectionId', isEqualTo: widget.documentId)
-      .get();
+  try {
+    // Check for overlapping sessions across all sections
+    final newStartTime = Timestamp.fromDate(startTime);
+    final newEndTime = Timestamp.fromDate(endTime);
+    final sessionSnapshot = await _firestore
+        .collection('sessions')
+        .where('lecturerEmail', isEqualTo: _lecturerUid)
+        .get();
 
-      for (var doc in sessionSnapshot.docs) {
+    for (var doc in sessionSnapshot.docs) {
       final data = doc.data();
       final existingStartTime = data['startTime'] as Timestamp?;
       final existingEndTime = data['endTime'] as Timestamp?;
@@ -376,26 +376,27 @@ class SessionManagerState extends State<SessionManagerPage> {
               newStartTime.toDate().isAfter(existingEndTime.toDate()))) {
           _showErrorSnackBar('Session time overlaps with an existing session');
           return;
-          }
         }
       }
-      // Create the session if no overlaps
-      await _firestore.collection('sessions').add({
-        'title': title,
-        'venue': venue,
-        'startTime': Timestamp.fromDate(startTime),
-        'endTime': Timestamp.fromDate(endTime),
-        'courseId': widget.courseId,
-        'sectionId': widget.documentId,
-        'lecturerEmail': _lecturerUid
-      });
-
-      _showSuccessSnackBar('Session created successfully');
-    } catch (e) {
-      print('Error creating session: $e');
-      _showErrorSnackBar('Failed to create session: ${e.toString()}');
     }
+
+    // Create the session if no overlaps
+    await _firestore.collection('sessions').add({
+      'title': title,
+      'venue': venue,
+      'startTime': newStartTime,
+      'endTime': newEndTime,
+      'courseId': widget.courseId,
+      'sectionId': widget.documentId,
+      'lecturerEmail': _lecturerUid,
+    });
+
+    _showSuccessSnackBar('Session created successfully');
+  } catch (e) {
+    print('Error creating session: $e');
+    _showErrorSnackBar('Failed to create session: ${e.toString()}');
   }
+}
 
   Widget _buildDetailRow(String label, String? value) {
     return Padding(
@@ -634,58 +635,55 @@ class SessionManagerState extends State<SessionManagerPage> {
   }
 
   Future<void> _updateSession(String sessionId, String title, String venue, DateTime startTime, DateTime endTime) async {
-    try {
-      // Double-check security: ensure the session belongs to the current user
-      final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
-      
-      if (!sessionDoc.exists) {
-        _showErrorSnackBar('Session not found');
-        return;
-      }
-      
-      final sessionData = sessionDoc.data() as Map<String, dynamic>;
-      if (sessionData['lecturerEmail'] != _lecturerUid) {
-        _showErrorSnackBar('Unauthorized: You can only edit your own sessions');
-        return;
-      }
-
-      // Check for overlapping sessions (excluding the current session)
-      final newStartTime = Timestamp.fromDate(startTime);
-      final newEndTime = Timestamp.fromDate(endTime);
-      final sessionSnapshot = await _firestore
-      .collection('sessions')
-      .where('lecturerEmail', isEqualTo: _lecturerUid)
-      .where('sectionId', isEqualTo: sessionData['sectionId'])
-      .get();
-      
-      for (var doc in sessionSnapshot.docs) {
-        if (doc.id == sessionId) continue; // Skip the session being updated
-        final data = doc.data();
-        final existingStartTime = data['startTime'] as Timestamp?;
-        final existingEndTime = data['endTime'] as Timestamp?;
-        if (existingStartTime != null && existingEndTime != null) {
-          if (!(newEndTime.toDate().isBefore(existingStartTime.toDate()) ||
-          newStartTime.toDate().isAfter(existingEndTime.toDate()))) {
-            _showErrorSnackBar('Session time overlaps with an existing session');
-            return;
-            }
-            }
-            }
-
-      // Update only the allowed fields if no overlap
-      await _firestore.collection('sessions').doc(sessionId).update({
-        'title': title,
-        'venue': venue,
-        'startTime': Timestamp.fromDate(startTime),
-        'endTime': Timestamp.fromDate(endTime)
-      });
-
-      _showSuccessSnackBar('Session updated successfully');
-    } catch (e) {
-      print('Error updating session: $e');
-      _showErrorSnackBar('Failed to update session: ${e.toString()}');
+  try {
+    // Double-check security
+    final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
+    if (!sessionDoc.exists) {
+      _showErrorSnackBar('Session not found');
+      return;
     }
+    final sessionData = sessionDoc.data() as Map<String, dynamic>;
+    if (sessionData['lecturerEmail'] != _lecturerUid) {
+      _showErrorSnackBar('Unauthorized: You can only edit your own sessions');
+      return;
+    }
+
+    // Check for overlapping sessions across all sections (excluding the current session)
+    final newStartTime = Timestamp.fromDate(startTime);
+    final newEndTime = Timestamp.fromDate(endTime);
+    final sessionSnapshot = await _firestore
+        .collection('sessions')
+        .where('lecturerEmail', isEqualTo: _lecturerUid)
+        .get();
+
+    for (var doc in sessionSnapshot.docs) {
+      if (doc.id == sessionId) continue; // Skip the session being updated
+      final data = doc.data();
+      final existingStartTime = data['startTime'] as Timestamp?;
+      final existingEndTime = data['endTime'] as Timestamp?;
+      if (existingStartTime != null && existingEndTime != null) {
+        if (!(newEndTime.toDate().isBefore(existingStartTime.toDate()) ||
+              newStartTime.toDate().isAfter(existingEndTime.toDate()))) {
+          _showErrorSnackBar('Session time overlaps with an existing session');
+          return;
+        }
+      }
+    }
+
+    // Update the session if no overlaps
+    await _firestore.collection('sessions').doc(sessionId).update({
+      'title': title,
+      'venue': venue,
+      'startTime': newStartTime,
+      'endTime': newEndTime,
+    });
+
+    _showSuccessSnackBar('Session updated successfully');
+  } catch (e) {
+    print('Error updating session: $e');
+    _showErrorSnackBar('Failed to update session: ${e.toString()}');
   }
+}
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
