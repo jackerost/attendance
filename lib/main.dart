@@ -63,7 +63,16 @@ class MyApp extends StatelessWidget {
             return SelectionPage(sessionId: sessionId);
             },
           AppRoutes.courseList: (context) => const CourseListPage(),
-          AppRoutes.sessionPage: (context) => const SessionManagerPage(),
+          AppRoutes.sessionPage: (context) {
+            final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+            final courseId = args['courseId'] as String;
+            final documentId = args['documentId'] as String;
+
+            return SessionManagerPage(
+              courseId: courseId,
+              documentId: documentId,
+              );
+              },
         },
         // If route isn't found, redirect to login
         onUnknownRoute: (settings) {

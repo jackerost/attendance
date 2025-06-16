@@ -197,10 +197,12 @@ class CourseListState extends State<CourseListPage> {
                                             color: Colors.grey[600],
                                           ),
                                         ),
-                                        trailing: const Icon(
-                                            Icons.settings,
-                                            color: Colors.grey,
-                                            size: 20,
+                                        trailing: Text(
+                                            '»', style: TextStyle(
+                                              fontSize: 20,
+                                              color: Colors.grey,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                         ),
                                         onTap: () {
                                           Navigator.pushNamed(
