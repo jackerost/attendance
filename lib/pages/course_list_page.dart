@@ -40,19 +40,35 @@ class CourseListState extends State<CourseListPage> {
         return;
       }
 
-      // Query Firestore collection 
-      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
+      // 1. Query Firestore collection for lecturer specific section
+      QuerySnapshot lecturerSectionsSnapshot = await FirebaseFirestore.instance
           .collection('sections') // collection name
           .where('lecturerEmail', isEqualTo: currentUid) // Filter by the lecturer's UID
           .get();
 
+      // 2. Query firestore for "custom" section
+      QuerySnapshot customSectionsSnapshot = await FirebaseFirestore.instance
+          .collection('sections')
+          .where('sectionType', isEqualTo: 'custom') // Filter for 'custom' sectionType
+          .get();
+
       // Convert Firestore documents to our course list
       List<Map<String, dynamic>> loadedCourses = [];
-      for (QueryDocumentSnapshot doc in querySnapshot.docs) {
+
+      //lecturer specific query
+      for (QueryDocumentSnapshot doc in lecturerSectionsSnapshot.docs) {
         Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        // Add document ID to the data in case you need it
         data['documentId'] = doc.id;
         loadedCourses.add(data);
+      }
+
+      //custom query
+      for (QueryDocumentSnapshot doc in customSectionsSnapshot.docs) {
+        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+        data['documentId'] = doc.id;
+        if (!loadedCourses.any((course) => course['documentId'] == data['documentId'])) {
+          loadedCourses.add(data);
+        }
       }
 
       setState(() {
