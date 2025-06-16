@@ -199,7 +199,7 @@ class CourseListState extends State<CourseListPage> {
                                         ),
                                         trailing: Text(
                                             '»', style: TextStyle(
-                                              fontSize: 20,
+                                              fontSize: 24,
                                               color: Colors.grey,
                                               fontWeight: FontWeight.bold,
                                             ),
