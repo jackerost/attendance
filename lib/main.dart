@@ -57,7 +57,19 @@ class MyApp extends StatelessWidget {
           // Define routes for navigation
           AppRoutes.login: (context) => const LoginPage(),
           AppRoutes.home: (context) => const HomePage(),
-          AppRoutes.nfcScanner: (context) => const NFCScannerPage(),
+          AppRoutes.nfcScanner: (context) {
+          final args = ModalRoute.of(context)?.settings.arguments;
+          if (args is String) {
+            return NFCScannerPage(sessionId: args);
+          }
+          // Handle the case where no sessionId is passed or it's not a String
+          // You might want to navigate back or show an error
+          return const Scaffold(
+            body: Center(
+              child: Text('Error: Session ID not provided for NFC Scanner.'),
+            ),
+          );
+        },
           AppRoutes.selector: (context) {
             final sessionId = ModalRoute.of(context)!.settings.arguments as String;
             return SelectionPage(sessionId: sessionId);
