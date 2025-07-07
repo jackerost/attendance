@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 
 class SessionManagerPage extends StatefulWidget {
   final String courseId;
-  final String documentId;
+  final String documentId; // This is the sectionId
 
   const SessionManagerPage({
     super.key,
@@ -21,19 +21,19 @@ class SessionManagerState extends State<SessionManagerPage> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
-  String? _lecturerUid;
+  String? _lecturerUid; // Stores the lecturer's UID
   String _errorMessage = '';
   bool _isLoading = true;
   List<Map<String, dynamic>> _sessions = [];
   bool _isCustomSection = false;
-  String _sectionTitle = '';
+  String _sectionTitle = ''; // Will store sectionTitle
 
   @override
   void initState() {
     super.initState();
-    _lecturerUid = _auth.currentUser?.uid;
+    _lecturerUid = _auth.currentUser?.uid; // Get the UID
     if (_lecturerUid == null) {
-      _errorMessage = 'User not logged in.';
+      _errorMessage = 'User not logged in or UID not found.';
       _isLoading = false;
     } else {
       _checkSectionType();
@@ -51,10 +51,14 @@ class SessionManagerState extends State<SessionManagerPage> {
       if (sectionDoc.exists) {
         final sectionData = sectionDoc.data() as Map<String, dynamic>;
         _isCustomSection = sectionData['sectionType'] == 'custom';
+        // Use 'sectionTitle' for consistency
         _sectionTitle = sectionData['sectionTitle'] ?? 'Unknown Section';
       }
     } catch (e) {
       print('Error checking section type: $e');
+      setState(() {
+        _errorMessage = 'Error loading section details.';
+      });
     }
   }
 
@@ -73,7 +77,7 @@ class SessionManagerState extends State<SessionManagerPage> {
 
       final QuerySnapshot sessionSnapshot = await _firestore
           .collection('sessions')
-          .where('lecturerEmail', isEqualTo: _lecturerUid)
+          .where('lecturerEmail', isEqualTo: _lecturerUid) // Filter by lecturer's UID stored in 'lecturerEmail'
           .where('sectionId', isEqualTo: widget.documentId)
           .orderBy('startTime', descending: false)
           .get();
@@ -94,9 +98,10 @@ class SessionManagerState extends State<SessionManagerPage> {
   }
 
   void _showSessionDetailsPopup(Map<String, dynamic> session) {
-    bool canEdit = _lecturerUid == session['lecturerEmail'];
+    // Compare with UID stored in 'lecturerEmail' field
+    bool canEdit = _lecturerUid == session['lecturerEmail']; 
     bool canDelete = _isCustomSection && canEdit;
-    
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -133,14 +138,17 @@ class SessionManagerState extends State<SessionManagerPage> {
               children: <Widget>[
                 _buildDetailRow('Title', session['title']),
                 _buildDetailRow('Venue', session['venue']),
-                _buildDetailRow('Start Time', session['startTime'] != null 
-                    ? DateFormat('dd MMM yyyy, hh:mm a').format((session['startTime'] as Timestamp).toDate().toLocal()) 
+                _buildDetailRow('Start Time', session['startTime'] != null
+                    ? DateFormat('dd MMM, hh:mm a').format((session['startTime'] as Timestamp).toDate().toLocal())
                     : 'N/A'),
-                _buildDetailRow('End Time', session['endTime'] != null 
-                    ? DateFormat('dd MMM yyyy, hh:mm a').format((session['endTime'] as Timestamp).toDate().toLocal()) 
+                _buildDetailRow('End Time', session['endTime'] != null
+                    ? DateFormat('dd MMM, hh:mm a').format((session['endTime'] as Timestamp).toDate().toLocal())
                     : 'N/A'),
                 _buildDetailRow('Course ID', session['courseId']),
                 _buildDetailRow('Section ID', session['sectionId']),
+                // Removed attendees from here if they're no longer managed via sessions UI directly
+                _buildDetailRow('Attendees', (session['attendees'] as List?)?.join(', ') ?? 'None'),
+
                 if (_isCustomSection)
                   Container(
                     margin: const EdgeInsets.only(top: 8),
@@ -156,7 +164,7 @@ class SessionManagerState extends State<SessionManagerPage> {
                         const SizedBox(width: 8),
                         const Expanded(
                           child: Text(
-                            'Custom Session - Can be deleted',
+                            'Custom Session - Can be deleted and manage participants (via section)',
                             style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
                           ),
                         ),
@@ -176,6 +184,7 @@ class SessionManagerState extends State<SessionManagerPage> {
                   _showEditSessionDialog(session);
                 },
               ),
+              // Removed "Add Participants" button from here
               if (canDelete)
                 TextButton.icon(
                   icon: const Icon(Icons.delete, color: Colors.red),
@@ -231,173 +240,30 @@ class SessionManagerState extends State<SessionManagerPage> {
     try {
       // Double-check security before deletion
       final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
-      
       if (!sessionDoc.exists) {
         _showErrorSnackBar('Session not found');
         return;
       }
-      
       final sessionData = sessionDoc.data() as Map<String, dynamic>;
+      // Check if the current lecturer's UID matches the session's lecturerEmail (which stores UID)
       if (sessionData['lecturerEmail'] != _lecturerUid) {
         _showErrorSnackBar('Unauthorized: You can only delete your own sessions');
         return;
       }
-
-      if (!_isCustomSection) {
-        _showErrorSnackBar('Cannot delete sessions from non-custom sections');
-        return;
-      }
-
+      
+      // Implement deletion logic
       await _firestore.collection('sessions').doc(sessionId).delete();
-      _showSuccessSnackBar('Session deleted successfully');
-      _loadSessions(); // Refresh the list
+      _showSuccessSnackBar('Session deleted successfully!');
+      _loadSessions(); // Reload sessions after deletion
+    } on FirebaseException catch (e) {
+      _showErrorSnackBar('Failed to delete session: ${e.message}');
+      print('Firebase error deleting session: ${e.code} - ${e.message}');
     } catch (e) {
-      print('Error deleting session: $e');
-      _showErrorSnackBar('Failed to delete session: ${e.toString()}');
+      _showErrorSnackBar('An unexpected error occurred: $e');
     }
   }
 
-  void _showAddSessionDialog() {
-    final TextEditingController titleController = TextEditingController();
-    final TextEditingController venueController = TextEditingController();
-    
-    DateTime? startTime;
-    DateTime? endTime;
-    bool isCreating = false;
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Add New Session'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Session Title *',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: venueController,
-                      decoration: const InputDecoration(
-                        labelText: 'Venue *',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildDateTimePicker(
-                      'Start Time',
-                      startTime,
-                      (newDateTime) {
-                        setDialogState(() {
-                          startTime = newDateTime;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    _buildDateTimePicker(
-                      'End Time',
-                      endTime,
-                      (newDateTime) {
-                        setDialogState(() {
-                          endTime = newDateTime;
-                        });
-                      },
-                    ),
-                    if (isCreating) ...[
-                      const SizedBox(height: 16),
-                      const CircularProgressIndicator(),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isCreating ? null : () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: isCreating ? null : () async {
-                    if (_validateInputs(titleController.text, venueController.text, startTime, endTime)) {
-                      setDialogState(() {
-                        isCreating = true;
-                      });
-                      
-                      await _createSession(
-                        titleController.text.trim(),
-                        venueController.text.trim(),
-                        startTime!,
-                        endTime!,
-                      );
-                      
-                      if (mounted) {
-                        Navigator.of(context).pop();
-                        _loadSessions(); // Refresh the list
-                      }
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 25, 154, 163),
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Create Session'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _createSession(String title, String venue, DateTime startTime, DateTime endTime) async {
-  try {
-    // Check for overlapping sessions across all sections
-    final newStartTime = Timestamp.fromDate(startTime);
-    final newEndTime = Timestamp.fromDate(endTime);
-    final sessionSnapshot = await _firestore
-        .collection('sessions')
-        .where('lecturerEmail', isEqualTo: _lecturerUid)
-        .get();
-
-    for (var doc in sessionSnapshot.docs) {
-      final data = doc.data();
-      final existingStartTime = data['startTime'] as Timestamp?;
-      final existingEndTime = data['endTime'] as Timestamp?;
-      if (existingStartTime != null && existingEndTime != null) {
-        if (!(newEndTime.toDate().isBefore(existingStartTime.toDate()) ||
-              newStartTime.toDate().isAfter(existingEndTime.toDate()))) {
-          _showErrorSnackBar('Session time overlaps with an existing session');
-          return;
-        }
-      }
-    }
-
-    // Create the session if no overlaps
-    await _firestore.collection('sessions').add({
-      'title': title,
-      'venue': venue,
-      'startTime': newStartTime,
-      'endTime': newEndTime,
-      'courseId': widget.courseId,
-      'sectionId': widget.documentId,
-      'lecturerEmail': _lecturerUid,
-    });
-
-    _showSuccessSnackBar('Session created successfully');
-  } catch (e) {
-    print('Error creating session: $e');
-    _showErrorSnackBar('Failed to create session: ${e.toString()}');
-  }
-}
-
+  // Helper method to build detail rows for session details popup
   Widget _buildDetailRow(String label, String? value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
@@ -408,135 +274,331 @@ class SessionManagerState extends State<SessionManagerPage> {
             width: 80,
             child: Text(
               '$label:',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
           Expanded(
-            child: Text(value ?? 'N/A'),
+            child: Text(
+              value ?? 'N/A',
+              style: const TextStyle(fontSize: 16),
+            ),
           ),
         ],
       ),
     );
   }
 
-  void _showEditSessionDialog(Map<String, dynamic> session) {
-    final TextEditingController titleController = TextEditingController(text: session['title'] ?? '');
-    final TextEditingController venueController = TextEditingController(text: session['venue'] ?? '');
-    
-    DateTime? startTime = session['startTime'] != null 
-        ? (session['startTime'] as Timestamp).toDate().toLocal() 
-        : null;
-    DateTime? endTime = session['endTime'] != null 
-        ? (session['endTime'] as Timestamp).toDate().toLocal() 
-        : null;
-    
-    bool isUpdating = false;
+  Future<void> _showAddSessionDialog() async {
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in.');
+      return;
+    }
+    final TextEditingController titleController = TextEditingController();
+    final TextEditingController venueController = TextEditingController();
+    DateTime? selectedDate;
+    TimeOfDay? selectedStartTime;
+    TimeOfDay? selectedEndTime;
 
-    showDialog(
+    await showDialog(
       context: context,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
+      builder: (context) {
+        return StatefulBuilder( // Use StatefulBuilder to update dialog state
+          builder: (context, setState) {
             return AlertDialog(
-              title: Text(_isCustomSection ? 'Edit Custom Session' : 'Edit Session'),
+              title: const Text('Add New Session'),
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextField(
                       controller: titleController,
-                      decoration: const InputDecoration(
-                        labelText: 'Session Title',
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: const InputDecoration(labelText: 'Session Title'),
                     ),
-                    const SizedBox(height: 16),
                     TextField(
                       controller: venueController,
-                      decoration: const InputDecoration(
-                        labelText: 'Venue',
-                        border: OutlineInputBorder(),
-                      ),
+                      decoration: const InputDecoration(labelText: 'Venue'),
                     ),
                     const SizedBox(height: 16),
-                    _buildDateTimePicker(
-                      'Start Time',
-                      startTime,
-                      (newDateTime) {
-                        setDialogState(() {
-                          startTime = newDateTime;
-                        });
+                    ListTile(
+                      leading: const Icon(Icons.calendar_today),
+                      title: Text(selectedDate == null
+                          ? 'Select Date'
+                          : DateFormat('dd MMM,yyyy').format(selectedDate!)),
+                      onTap: () async {
+                        final DateTime? picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate ?? DateTime.now(),
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime(2101),
+                        );
+                        if (picked != null && picked != selectedDate) {
+                          setState(() {
+                            selectedDate = picked;
+                          });
+                        }
                       },
                     ),
-                    const SizedBox(height: 16),
-                    _buildDateTimePicker(
-                      'End Time',
-                      endTime,
-                      (newDateTime) {
-                        setDialogState(() {
-                          endTime = newDateTime;
-                        });
+                    ListTile(
+                      leading: const Icon(Icons.access_time),
+                      title: Text(selectedStartTime == null
+                          ? 'Select Start Time'
+                          : selectedStartTime!.format(context)),
+                      onTap: () async {
+                        final TimeOfDay? picked = await showTimePicker(
+                          context: context,
+                          initialTime: selectedStartTime ?? TimeOfDay.now(),
+                        );
+                        if (picked != null && picked != selectedStartTime) {
+                          setState(() {
+                            selectedStartTime = picked;
+                          });
+                        }
                       },
                     ),
-                    if (!_isCustomSection)
-                      Container(
-                        margin: const EdgeInsets.only(top: 16),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.orange[50],
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.orange[200]!),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.info, size: 16, color: Colors.orange[600]),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text(
-                                'Regular session - Only basic details can be edited',
-                                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (isUpdating) ...[
-                      const SizedBox(height: 16),
-                      const CircularProgressIndicator(),
-                    ],
+                    ListTile(
+                      leading: const Icon(Icons.access_time),
+                      title: Text(selectedEndTime == null
+                          ? 'Select End Time'
+                          : selectedEndTime!.format(context)),
+                      onTap: () async {
+                        final TimeOfDay? picked = await showTimePicker(
+                          context: context,
+                          initialTime: selectedEndTime ?? TimeOfDay.now(),
+                        );
+                        if (picked != null && picked != selectedEndTime) {
+                          setState(() {
+                            selectedEndTime = picked;
+                          });
+                        }
+                      },
+                    ),
                   ],
                 ),
               ),
               actions: [
                 TextButton(
-                  onPressed: isUpdating ? null : () => Navigator.of(context).pop(),
+                  onPressed: () => Navigator.pop(context),
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  onPressed: isUpdating ? null : () async {
-                    if (_validateInputs(titleController.text, venueController.text, startTime, endTime)) {
-                      setDialogState(() {
-                        isUpdating = true;
-                      });
-                      
-                      await _updateSession(
-                        session['sessionId'],
-                        titleController.text.trim(),
-                        venueController.text.trim(),
-                        startTime!,
-                        endTime!,
+                  onPressed: () async {
+                    if (titleController.text.trim().isEmpty ||
+                        venueController.text.trim().isEmpty ||
+                        selectedDate == null ||
+                        selectedStartTime == null ||
+                        selectedEndTime == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please fill all fields.')),
                       );
-                      
-                      if (mounted) {
-                        Navigator.of(context).pop();
-                        _loadSessions(); // Refresh the list
-                      }
+                      return;
                     }
+
+                    // Combine date and time
+                    final DateTime startDateTime = DateTime(
+                      selectedDate!.year,
+                      selectedDate!.month,
+                      selectedDate!.day,
+                      selectedStartTime!.hour,
+                      selectedStartTime!.minute,
+                    );
+                    final DateTime endDateTime = DateTime(
+                      selectedDate!.year,
+                      selectedDate!.month,
+                      selectedDate!.day,
+                      selectedEndTime!.hour,
+                      selectedEndTime!.minute,
+                    );
+
+                    if (endDateTime.isBefore(startDateTime)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('End time cannot be before start time.')),
+                      );
+                      return;
+                    }
+
+                    await _createSession(
+                      titleController.text.trim(),
+                      venueController.text.trim(),
+                      startDateTime,
+                      endDateTime,
+                    );
+                    if (mounted) Navigator.pop(context); // Close dialog
                   },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 25, 154, 163),
-                    foregroundColor: Colors.white,
-                  ),
+                  child: const Text('Add Session'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _createSession(
+      String title, String venue, DateTime startTime, DateTime endTime) async {
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in.');
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      await _firestore.collection('sessions').add({
+        'title': title,
+        'venue': venue,
+        'startTime': Timestamp.fromDate(startTime),
+        'endTime': Timestamp.fromDate(endTime),
+        'courseId': widget.courseId,
+        'sectionId': widget.documentId,
+        'lecturerEmail': _lecturerUid, // Store UID in 'lecturerEmail' field
+        'createdAt': FieldValue.serverTimestamp(),
+        'attendees': [], // Initialize with an empty array of attendees
+      });
+      _showSuccessSnackBar('Session "$title" created successfully!');
+      _loadSessions(); // Reload sessions to include the new one
+    } on FirebaseException catch (e) {
+      _showErrorSnackBar('Failed to add session: ${e.message}');
+      print('Firebase error adding session: ${e.code} - ${e.message}');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _showEditSessionDialog(Map<String, dynamic> session) async {
+    final TextEditingController titleController = TextEditingController(text: session['title']);
+    final TextEditingController venueController = TextEditingController(text: session['venue']);
+    DateTime? selectedDate = (session['startTime'] as Timestamp).toDate();
+    TimeOfDay? selectedStartTime = TimeOfDay.fromDateTime(selectedDate!);
+    TimeOfDay? selectedEndTime = TimeOfDay.fromDateTime((session['endTime'] as Timestamp).toDate());
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('Edit Session'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      decoration: const InputDecoration(labelText: 'Session Title'),
+                    ),
+                    TextField(
+                      controller: venueController,
+                      decoration: const InputDecoration(labelText: 'Venue'),
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      leading: const Icon(Icons.calendar_today),
+                      title: Text(selectedDate == null
+                          ? 'Select Date'
+                          : DateFormat('dd MMM,yyyy').format(selectedDate!)),
+                      onTap: () async {
+                        final DateTime? picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate ?? DateTime.now(),
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2101),
+                        );
+                        if (picked != null && picked != selectedDate) {
+                          setState(() {
+                            selectedDate = picked;
+                          });
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.access_time),
+                      title: Text(selectedStartTime == null
+                          ? 'Select Start Time'
+                          : selectedStartTime!.format(context)),
+                      onTap: () async {
+                        final TimeOfDay? picked = await showTimePicker(
+                          context: context,
+                          initialTime: selectedStartTime ?? TimeOfDay.now(),
+                        );
+                        if (picked != null && picked != selectedStartTime) {
+                          setState(() {
+                            selectedStartTime = picked;
+                          });
+                        }
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.access_time),
+                      title: Text(selectedEndTime == null
+                          ? 'Select End Time'
+                          : selectedEndTime!.format(context)),
+                      onTap: () async {
+                        final TimeOfDay? picked = await showTimePicker(
+                          context: context,
+                          initialTime: selectedEndTime ?? TimeOfDay.now(),
+                        );
+                        if (picked != null && picked != selectedEndTime) {
+                          setState(() {
+                            selectedEndTime = picked;
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () async {
+                    if (titleController.text.trim().isEmpty ||
+                        venueController.text.trim().isEmpty ||
+                        selectedDate == null ||
+                        selectedStartTime == null ||
+                        selectedEndTime == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please fill all fields.')),
+                      );
+                      return;
+                    }
+
+                    final DateTime startDateTime = DateTime(
+                      selectedDate!.year,
+                      selectedDate!.month,
+                      selectedDate!.day,
+                      selectedStartTime!.hour,
+                      selectedStartTime!.minute,
+                    );
+                    final DateTime endDateTime = DateTime(
+                      selectedDate!.year,
+                      selectedDate!.month,
+                      selectedDate!.day,
+                      selectedEndTime!.hour,
+                      selectedEndTime!.minute,
+                    );
+
+                    if (endDateTime.isBefore(startDateTime)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('End time cannot be before start time.')),
+                      );
+                      return;
+                    }
+
+                    await _updateSession(
+                      session['sessionId'],
+                      titleController.text.trim(),
+                      venueController.text.trim(),
+                      startDateTime,
+                      endDateTime,
+                    );
+                    if (mounted) Navigator.pop(context);
+                  },
                   child: const Text('Update Session'),
                 ),
               ],
@@ -547,144 +609,50 @@ class SessionManagerState extends State<SessionManagerPage> {
     );
   }
 
-  Widget _buildDateTimePicker(String label, DateTime? dateTime, Function(DateTime) onChanged) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-        ),
-        const SizedBox(height: 8),
-        InkWell(
-          onTap: () => _selectDateTime(dateTime, onChanged),
-          child: Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.grey),
-              borderRadius: BorderRadius.circular(4),
-            ),
-            width: double.infinity,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  dateTime != null 
-                      ? DateFormat('dd MMM yyyy, hh:mm a').format(dateTime)
-                      : 'Select $label',
-                  style: TextStyle(
-                    color: dateTime != null ? Colors.black : Colors.grey[600],
-                  ),
-                ),
-                const Icon(Icons.calendar_today, color: Colors.grey),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _selectDateTime(DateTime? currentDateTime, Function(DateTime) onChanged) async {
-    final DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: currentDateTime ?? DateTime.now(),
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    
-    if (pickedDate != null) {
-      final TimeOfDay? pickedTime = await showTimePicker(
-        context: context,
-        initialTime: currentDateTime != null 
-            ? TimeOfDay.fromDateTime(currentDateTime) 
-            : TimeOfDay.now(),
-      );
-      
-      if (pickedTime != null) {
-        final DateTime newDateTime = DateTime(
-          pickedDate.year,
-          pickedDate.month,
-          pickedDate.day,
-          pickedTime.hour,
-          pickedTime.minute,
-        );
-        onChanged(newDateTime);
-      }
-    }
-  }
-
-  bool _validateInputs(String title, String venue, DateTime? startTime, DateTime? endTime) {
-    if (title.isEmpty) {
-      _showErrorSnackBar('Please enter a session title');
-      return false;
-    }
-    if (venue.isEmpty) {
-      _showErrorSnackBar('Please enter a venue');
-      return false;
-    }
-    if (startTime == null || endTime == null) {
-      _showErrorSnackBar('Please select both start and end times');
-      return false;
-    }
-    if (endTime.isBefore(startTime)) {
-      _showErrorSnackBar('End time must be after start time');
-      return false;
-    }
-    return true;
-  }
-
-  Future<void> _updateSession(String sessionId, String title, String venue, DateTime startTime, DateTime endTime) async {
-  try {
-    // Double-check security
-    final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
-    if (!sessionDoc.exists) {
-      _showErrorSnackBar('Session not found');
+  Future<void> _updateSession(
+      String sessionId, String title, String venue, DateTime startTime, DateTime endTime) async {
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in.');
       return;
     }
-    final sessionData = sessionDoc.data() as Map<String, dynamic>;
-    if (sessionData['lecturerEmail'] != _lecturerUid) {
-      _showErrorSnackBar('Unauthorized: You can only edit your own sessions');
-      return;
-    }
-
-    // Check for overlapping sessions across all sections (excluding the current session)
-    final newStartTime = Timestamp.fromDate(startTime);
-    final newEndTime = Timestamp.fromDate(endTime);
-    final sessionSnapshot = await _firestore
-        .collection('sessions')
-        .where('lecturerEmail', isEqualTo: _lecturerUid)
-        .get();
-
-    for (var doc in sessionSnapshot.docs) {
-      if (doc.id == sessionId) continue; // Skip the session being updated
-      final data = doc.data();
-      final existingStartTime = data['startTime'] as Timestamp?;
-      final existingEndTime = data['endTime'] as Timestamp?;
-      if (existingStartTime != null && existingEndTime != null) {
-        if (!(newEndTime.toDate().isBefore(existingStartTime.toDate()) ||
-              newStartTime.toDate().isAfter(existingEndTime.toDate()))) {
-          _showErrorSnackBar('Session time overlaps with an existing session');
-          return;
-        }
-      }
-    }
-
-    // Update the session if no overlaps
-    await _firestore.collection('sessions').doc(sessionId).update({
-      'title': title,
-      'venue': venue,
-      'startTime': newStartTime,
-      'endTime': newEndTime,
+    setState(() {
+      _isLoading = true;
     });
+    try {
+      final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
+      if (!sessionDoc.exists) {
+        _showErrorSnackBar('Session not found for update.');
+        return;
+      }
+      final sessionData = sessionDoc.data() as Map<String, dynamic>;
+      // Check if the current lecturer's UID matches the session's lecturerEmail (which stores UID)
+      if (sessionData['lecturerEmail'] != _lecturerUid) {
+        _showErrorSnackBar('Unauthorized: You can only edit your own sessions');
+        return;
+      }
 
-    _showSuccessSnackBar('Session updated successfully');
-  } catch (e) {
-    print('Error updating session: $e');
-    _showErrorSnackBar('Failed to update session: ${e.toString()}');
+      await _firestore.collection('sessions').doc(sessionId).update({
+        'title': title,
+        'venue': venue,
+        'startTime': Timestamp.fromDate(startTime),
+        'endTime': Timestamp.fromDate(endTime),
+        // lecturerEmail, courseId, sectionId, createdAt should not change on update
+      });
+      _showSuccessSnackBar('Session "$title" updated successfully!');
+      _loadSessions();
+    } on FirebaseException catch (e) {
+      _showErrorSnackBar('Failed to update session: ${e.message}');
+      print('Firebase error updating session: ${e.code} - ${e.message}');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
-}
 
+  // Removed _showAddParticipantsDialog and _addParticipantsToSession methods from here.
+
+  // Helper for snackbars
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -709,20 +677,9 @@ class SessionManagerState extends State<SessionManagerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_sectionTitle.isNotEmpty ? _sectionTitle : 'Session List'),
-        backgroundColor: const Color.fromARGB(255, 25, 154, 163),
+        title: Text(_sectionTitle.isEmpty ? 'Manage Sessions' : 'Sessions for $_sectionTitle'),
+        backgroundColor: const Color(0xFF1976D2), // Changed to match your design
         foregroundColor: Colors.white,
-        actions: [
-          if (_isCustomSection)
-            Container(
-              margin: const EdgeInsets.only(right: 8),
-              child: Chip(
-                label: const Text('CUSTOM', style: TextStyle(fontSize: 10)),
-                backgroundColor: Colors.orange[100],
-                labelStyle: TextStyle(color: Colors.orange[800]),
-              ),
-            ),
-        ],
       ),
       body: Column(
         children: [
@@ -732,157 +689,70 @@ class SessionManagerState extends State<SessionManagerPage> {
                 : _errorMessage.isNotEmpty
                     ? Center(child: Text(_errorMessage))
                     : _sessions.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.event_busy,
-                                  size: 64,
-                                  color: Colors.grey[400],
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  _isCustomSection 
-                                      ? 'No custom sessions created yet.\nTap "Add Session" to create your first session!'
-                                      : 'No sessions found for this section.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: Colors.grey[600],
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Text(
+                                'No sessions found for this section.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 18, color: Colors.grey),
+                              ),
                             ),
                           )
                         : ListView.builder(
-                            itemCount: _sessions.length,
                             padding: const EdgeInsets.all(16.0),
+                            itemCount: _sessions.length,
                             itemBuilder: (context, index) {
                               final session = _sessions[index];
-                              String formattedStartTime = (session['startTime'] as Timestamp?) != null
-                                  ? DateFormat('hh:mm a').format((session['startTime'] as Timestamp).toDate().toLocal())
-                                  : 'N/A';
-                              String formattedEndTime = (session['endTime'] as Timestamp?) != null
-                                  ? DateFormat('hh:mm a').format((session['endTime'] as Timestamp).toDate().toLocal())
-                                  : 'N/A';
-
-                              bool canEdit = _lecturerUid == session['lecturerEmail'];
-                              bool canDelete = _isCustomSection && canEdit;
-
-                              return GestureDetector(
-                                onTap: () => _showSessionDetailsPopup(session),
-                                child: Card(
-                                  margin: const EdgeInsets.only(bottom: 12.0),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                                  elevation: 2,
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 12.0),
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                child: InkWell(
+                                  onTap: () => _showSessionDetailsPopup(session),
                                   child: Padding(
-                                    padding: const EdgeInsets.all(12.0),
-                                    child: Row(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
-                                        Container(
-                                          width: 4.0,
-                                          height: 80.0,
-                                          decoration: BoxDecoration(
-                                            color: _isCustomSection 
-                                                ? Colors.orange[400] 
-                                                : const Color.fromARGB(255, 25, 154, 163),
-                                            borderRadius: BorderRadius.circular(2.0),
-                                          ),
-                                          margin: const EdgeInsets.only(right: 12.0),
+                                        Text(
+                                          session['title'] ?? 'Unnamed Session',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold, fontSize: 18),
                                         ),
-                                        Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                        const SizedBox(height: 8),
+                                        Row(
                                           children: [
+                                            const Icon(Icons.location_on, size: 16),
+                                            const SizedBox(width: 4),
+                                            Text(session['venue'] ?? 'N/A'),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.schedule, size: 16),
+                                            const SizedBox(width: 4),
                                             Text(
-                                              formattedStartTime,
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87,
-                                              ),
-                                            ),
-                                            Text(
-                                              formattedEndTime,
-                                              style: const TextStyle(
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black54,
-                                              ),
+                                              session['startTime'] != null && session['endTime'] != null
+                                                  ? '${DateFormat('dd MMM, hh:mm a').format((session['startTime'] as Timestamp).toDate().toLocal())} - ${DateFormat('hh:mm a').format((session['endTime'] as Timestamp).toDate().toLocal())}'
+                                                  : 'N/A',
                                             ),
                                           ],
                                         ),
-                                        const SizedBox(width: 16.0),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Row(
-                                                children: [
-                                                  Expanded(
-                                                    child: Text(
-                                                      session['title'] ?? 'No Title',
-                                                      style: const TextStyle(
-                                                        fontSize: 16,
-                                                        fontWeight: FontWeight.w600,
-                                                      ),
-                                                      overflow: TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                  if (_isCustomSection)
-                                                    Container(
-                                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                      decoration: BoxDecoration(
-                                                        color: Colors.orange[100],
-                                                        borderRadius: BorderRadius.circular(8),
-                                                      ),
-                                                      child: Text(
-                                                        'CUSTOM',
-                                                        style: TextStyle(
-                                                          fontSize: 10,
-                                                          fontWeight: FontWeight.bold,
-                                                          color: Colors.orange[800],
-                                                        ),
-                                                      ),
-                                                    ),
-                                                ],
-                                              ),
-                                              Text(
-                                                session['venue'] ?? 'No Venue',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: Colors.grey[700],
-                                                ),
-                                              ),
-                                              Text(
-                                                session['startTime'] != null 
-                                                    ? DateFormat('dd MMMM').format((session['startTime'] as Timestamp).toDate().toLocal()) 
-                                                    : 'N/A',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: Colors.grey[700],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        Column(
-                                          children: [
-                                            Icon(
-                                              canEdit ? Icons.edit : Icons.visibility,
-                                              color: canEdit ? const Color.fromARGB(255, 25, 154, 163) : Colors.grey,
-                                              size: 20,
-                                            ),
-                                            if (canDelete)
-                                              const SizedBox(height: 4),
-                                            if (canDelete)
-                                              Icon(
+                                        // Show deletion icon for custom sections owned by the lecturer
+                                        if (_isCustomSection && _lecturerUid == session['lecturerEmail'])
+                                          Align(
+                                            alignment: Alignment.bottomRight,
+                                            child: IconButton(
+                                              onPressed: () => _showDeleteConfirmation(session),
+                                              icon: Icon(
                                                 Icons.delete,
                                                 color: Colors.red[400],
                                                 size: 16,
                                               ),
-                                          ],
-                                        ),
+                                            ),
+                                          ),
                                       ],
                                     ),
                                   ),

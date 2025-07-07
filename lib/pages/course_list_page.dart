@@ -1,271 +1,585 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../main.dart';
+import 'package:intl/intl.dart';
+import '../main.dart'; // For AppRoutes
+import 'session_manager_page.dart'; // For navigating to manage sessions for a specific section
 
 class CourseListPage extends StatefulWidget {
   const CourseListPage({super.key});
 
   @override
-  CourseListState createState() => CourseListState();
+  CourseListPageState createState() => CourseListPageState();
 }
 
-class CourseListState extends State<CourseListPage> {
-  // This list will hold our Firestore data
-  List<Map<String, dynamic>> courses = [];
-  bool isLoading = true; // Track loading state
-  String errorMessage = ''; // Track any errors
+class CourseListPageState extends State<CourseListPage> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  String? _lecturerUid;
+  String? _lecturerEmail; // Keep this for clarity, but _lecturerUid will be used for 'lecturerEmail' field in Firestore
+  bool _isLoading = true;
+  String _errorMessage = '';
+  List<Map<String, dynamic>> _allSections = []; // Combined list of all sections
 
   @override
   void initState() {
     super.initState();
-    // Load courses when the page initializes
-    loadCourses();
+    _lecturerUid = _auth.currentUser?.uid;
+    _lecturerEmail = _auth.currentUser?.email; // Store email for display/logging if needed
+
+    if (_lecturerUid == null || _lecturerEmail == null) {
+      _errorMessage = 'User not logged in or email not found.';
+      _isLoading = false;
+    } else {
+      _loadAllSections();
+    }
   }
 
-  // Function to load courses from Firestore
-  Future<void> loadCourses() async {
+  // Method to load all sections (regular and custom)
+  Future<void> _loadAllSections() async {
+    if (_lecturerUid == null || _lecturerEmail == null) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+      _allSections = [];
+    });
+
     try {
+      final List<Map<String, dynamic>> loadedSections = [];
+
+      // 1. Fetch regular sections where the lecturer's UID (stored in 'lecturerEmail') matches
+      //    This aligns with Firestore rules that check 'lecturerEmail' for ownership.
+      final QuerySnapshot regularSectionsSnapshot = await _firestore
+          .collection('sections')
+          .where('sectionType', isEqualTo: 'regular')
+          .where('lecturerEmail', isEqualTo: _lecturerUid) // Use _lecturerUid to match 'lecturerEmail' in Firestore
+          .get();
+
+      for (var doc in regularSectionsSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id;
+        loadedSections.add(data);
+      }
+
+      // 2. Fetch custom sections created by the current lecturer (using UID stored in 'lecturerEmail')
+      //    Aligns with Firestore rules for 'lecturerEmail' ownership.
+      final QuerySnapshot customSectionsSnapshot = await _firestore
+          .collection('sections')
+          .where('lecturerEmail', isEqualTo: _lecturerUid) // Use _lecturerUid to match 'lecturerEmail' in Firestore
+          .where('sectionType', isEqualTo: 'custom')
+          .get();
+
+      for (var doc in customSectionsSnapshot.docs) {
+        final data = doc.data() as Map<String, dynamic>;
+        data['id'] = doc.id; // Store document ID
+        loadedSections.add(data);
+      }
+
+      // Sort sections by title for better display
+      loadedSections.sort((a, b) => (a['sectionTitle'] ?? '').compareTo(b['sectionTitle'] ?? ''));
+
       setState(() {
-        isLoading = true;
-        errorMessage = '';
+        _allSections = loadedSections;
       });
+    } on FirebaseException catch (e) {
+      _errorMessage = 'Failed to load sections: ${e.message}';
+      print('Firebase error loading sections: ${e.code} - ${e.message}');
+    } catch (e) {
+      _errorMessage = 'An unexpected error occurred: $e';
+      print('Error loading sections: $e');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
-      //get logged in users uid
-      final currentUid = FirebaseAuth.instance.currentUser?.uid;
+  // --- Create new custom section ---
+  Future<void> _showCreateNewCustomSectionDialog() async {
+    final TextEditingController sectionTitleController = TextEditingController(); // Renamed to sectionTitleController
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Create New Custom Section'),
+          content: TextField(
+            controller: sectionTitleController, // Use sectionTitleController
+            decoration: const InputDecoration(hintText: 'Enter section title'), // Updated hint text
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (sectionTitleController.text.trim().isEmpty) { // Check sectionTitleController
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Section title cannot be empty.')), // Updated message
+                  );
+                  return;
+                }
+                await _createCustomSection(sectionTitleController.text.trim()); // Pass sectionTitle
+                if (mounted) Navigator.pop(context); // Close the dialog
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
-      //if null uid, dont show courses and exit
-      if (currentUid == null) {
-        setState(() { isLoading = false; });
+  Future<void> _createCustomSection(String sectionTitle) async { // Renamed parameter to sectionTitle
+    if (_lecturerUid == null) { // Only UID is relevant here for Firestore rule matching
+      _showErrorSnackBar('User not logged in.');
+      return;
+    }
+    setState(() {
+      _isLoading = true;
+    });
+    try {
+      await _firestore.collection('sections').add({
+        'sectionTitle': sectionTitle, // Use sectionTitle
+        'lecturerEmail': _lecturerUid, // Store UID in 'lecturerEmail' to match rules
+        'sectionType': 'custom',
+        'courseId': 'CUSTOM_SECTION_GENERATED', // Consistent placeholder for custom sections
+        'createdAt': FieldValue.serverTimestamp(), // Use 'createdAt' to match rules
+      });
+      _showSuccessSnackBar('Custom section "$sectionTitle" created successfully!'); // Updated message
+      _loadAllSections(); // Reload list to include the new section
+    } on FirebaseException catch (e) {
+      _showErrorSnackBar('Failed to create custom section: ${e.message}');
+      print('Error creating custom section: ${e.code} - ${e.message}');
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  // --- Show dialog for adding participants to a custom section ---
+  Future<void> _showAddParticipantsDialog(String sectionId, String sectionTitle) async { // Renamed sectionName to sectionTitle
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in.');
+      return;
+    }
+    final TextEditingController studentIdsController = TextEditingController(); // Renamed to studentIdsController for bulk input
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Add Participants to "$sectionTitle"'), // Use sectionTitle
+          content: TextField(
+            controller: studentIdsController, // Use studentIdsController
+            decoration: const InputDecoration(hintText: 'Enter student IDs (comma-separated)'), // Updated hint for bulk input
+            maxLines: 3, // Allow multiple lines for bulk input
+            keyboardType: TextInputType.multiline,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (studentIdsController.text.trim().isEmpty) { // Check studentIdsController
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Student IDs cannot be empty.')),
+                  );
+                  return;
+                }
+                // Pass sectionId and the comma-separated string for bulk processing
+                await _addParticipantsToSection(sectionId, studentIdsController.text.trim());
+                if (mounted) Navigator.pop(context);
+              },
+              child: const Text('Add Participants'), // Updated button text
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- Add participants to a custom section with ownership check ---
+  Future<void> _addParticipantsToSection(String sectionId, String studentIdsString) async { // Renamed to _addParticipantsToSection
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in. Cannot add participants.');
+      return;
+    }
+
+    try {
+      final sectionDoc = await _firestore.collection('sections').doc(sectionId).get();
+      if (!sectionDoc.exists) {
+        _showErrorSnackBar('Section not found.');
+        return;
+      }
+      final sectionData = sectionDoc.data();
+      // Ownership check: Use 'lecturerEmail' field for UID comparison
+      if (sectionData?['lecturerEmail'] != _lecturerUid || sectionData?['sectionType'] != 'custom') {
+        _showErrorSnackBar('Unauthorized: You can only add participants to custom sections you created.');
         return;
       }
 
-      // 1. Query Firestore collection for lecturer specific section
-      QuerySnapshot lecturerSectionsSnapshot = await FirebaseFirestore.instance
-          .collection('sections') // collection name
-          .where('lecturerEmail', isEqualTo: currentUid) // Filter by the lecturer's UID
-          .get();
+      final List<String> studentIds = studentIdsString
+          .split(',')
+          .map((id) => id.trim())
+          .where((id) => id.isNotEmpty)
+          .toList();
 
-      // 2. Query firestore for "custom" section
-      QuerySnapshot customSectionsSnapshot = await FirebaseFirestore.instance
-          .collection('sections')
-          .where('sectionType', isEqualTo: 'custom') // Filter for 'custom' sectionType
-          .get();
-
-      // Convert Firestore documents to our course list
-      List<Map<String, dynamic>> loadedCourses = [];
-
-      //lecturer specific query
-      for (QueryDocumentSnapshot doc in lecturerSectionsSnapshot.docs) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        data['documentId'] = doc.id;
-        loadedCourses.add(data);
+      if (studentIds.isEmpty) {
+        _showErrorSnackBar('No valid student IDs found to add.');
+        return;
       }
 
-      //custom query
-      for (QueryDocumentSnapshot doc in customSectionsSnapshot.docs) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        data['documentId'] = doc.id;
-        if (!loadedCourses.any((course) => course['documentId'] == data['documentId'])) {
-          loadedCourses.add(data);
+      int addedCount = 0;
+      int notFoundCount = 0;
+      int alreadyEnrolledCount = 0;
+
+      for (final studentId in studentIds) {
+        final studentDocRef = _firestore.collection('students').doc(studentId);
+        
+        // Use a transaction to safely update and check existence
+        await _firestore.runTransaction((transaction) async {
+          final studentDocSnapshot = await transaction.get(studentDocRef);
+
+          if (studentDocSnapshot.exists) {
+            final currentEnrolledSections = (studentDocSnapshot.data()?['enrolledSections'] as List<dynamic>?)?.cast<String>() ?? [];
+
+            if (!currentEnrolledSections.contains(sectionId)) {
+              transaction.update(studentDocRef, {
+                'enrolledSections': FieldValue.arrayUnion([sectionId]),
+              });
+              addedCount++;
+            } else {
+              alreadyEnrolledCount++;
+            }
+          } else {
+            notFoundCount++;
+          }
+        });
+      }
+
+      String message = 'Enrollment complete:';
+      if (addedCount > 0) message += ' $addedCount student(s) enrolled successfully.';
+      if (alreadyEnrolledCount > 0) message += ' $alreadyEnrolledCount student(s) already enrolled.';
+      if (notFoundCount > 0) message += ' $notFoundCount student(s) not found.';
+
+      _showSuccessSnackBar(message);
+
+    } on FirebaseException catch (e) {
+      _showErrorSnackBar('Failed to add participants: ${e.message}');
+      print('Firebase error adding participants: ${e.code} - ${e.message}');
+    } catch (e) {
+      _showErrorSnackBar('An unexpected error occurred: $e');
+    }
+  }
+
+  // --- Show dialog for renaming a custom section ---
+  Future<void> _showRenameSectionDialog(String sectionId, String currentTitle) async { // Renamed currentName to currentTitle
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in.');
+      return;
+    }
+    final TextEditingController newTitleController = TextEditingController(text: currentTitle); // Renamed controller
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Rename Section'),
+          content: TextField(
+            controller: newTitleController, // Use newTitleController
+            decoration: const InputDecoration(hintText: 'Enter new section title'), // Updated hint
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (newTitleController.text.trim().isEmpty) { // Check newTitleController
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Section title cannot be empty.')), // Updated message
+                  );
+                  return;
+                }
+                await _renameCustomSection(sectionId, newTitleController.text.trim()); // Pass new title
+                if (mounted) Navigator.pop(context);
+              },
+              child: const Text('Rename'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- Rename a custom section with ownership check ---
+  Future<void> _renameCustomSection(String sectionId, String newTitle) async { // Renamed newName to newTitle
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in. Cannot rename section.');
+      return;
+    }
+
+    try {
+      final sectionDoc = await _firestore.collection('sections').doc(sectionId).get();
+      if (!sectionDoc.exists) {
+        _showErrorSnackBar('Section not found.');
+        return;
+      }
+      final sectionData = sectionDoc.data();
+      // Ownership check: Use 'lecturerEmail' field for UID comparison
+      if (sectionData?['lecturerEmail'] != _lecturerUid || sectionData?['sectionType'] != 'custom') {
+        _showErrorSnackBar('Unauthorized: You can only rename custom sections you created.');
+        return;
+      }
+
+      await _firestore.collection('sections').doc(sectionId).update({
+        'sectionTitle': newTitle, // Update 'sectionTitle'
+      });
+      _showSuccessSnackBar('Section renamed to "$newTitle" successfully!'); // Updated message
+      _loadAllSections(); // Reload list to reflect the name change
+    } on FirebaseException catch (e) {
+      _showErrorSnackBar('Failed to rename section: ${e.message}');
+      print('Firebase error renaming section: ${e.code} - ${e.message}');
+    } catch (e) {
+      _showErrorSnackBar('An unexpected error occurred: $e');
+    }
+  }
+
+  // --- Delete a custom section with ownership check ---
+  Future<void> _deleteCustomSection(String sectionId, String sectionTitle) async { // Renamed sectionName to sectionTitle
+    if (_lecturerUid == null) {
+      _showErrorSnackBar('User not logged in. Cannot delete section.');
+      return;
+    }
+
+    try {
+      final sectionDoc = await _firestore.collection('sections').doc(sectionId).get();
+      if (!sectionDoc.exists) {
+        _showErrorSnackBar('Section not found for deletion.');
+        return;
+      }
+      final sectionData = sectionDoc.data();
+      // Ownership check: Use 'lecturerEmail' field for UID comparison
+      if (sectionData?['lecturerEmail'] != _lecturerUid || sectionData?['sectionType'] != 'custom') {
+        _showErrorSnackBar('Unauthorized: You can only delete custom sections you created.');
+        return;
+      }
+
+      final bool confirm = await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Delete Section'),
+              content: Text('Are you sure you want to delete "$sectionTitle" and all its sessions? This action cannot be undone.'), // Use sectionTitle
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  child: const Text('Delete'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+
+      if (!confirm) return;
+
+      // 1. Delete all sessions linked to this section
+      final QuerySnapshot sessionSnapshot = await _firestore
+          .collection('sessions')
+          .where('sectionId', isEqualTo: sectionId)
+          .get();
+      for (DocumentSnapshot doc in sessionSnapshot.docs) {
+        await doc.reference.delete();
+      }
+
+      // 2. Remove this section from all students' 'enrolledSections'
+      final QuerySnapshot studentSnapshot = await _firestore
+          .collection('students')
+          .where('enrolledSections', arrayContains: sectionId)
+          .get();
+      for (DocumentSnapshot studentDoc in studentSnapshot.docs) {
+        // Ensure studentDoc.data() is not null before casting
+        if (studentDoc.data() != null) {
+          await studentDoc.reference.update({
+            'enrolledSections': FieldValue.arrayRemove([sectionId]),
+          });
         }
       }
 
-      setState(() {
-        courses = loadedCourses;
-        isLoading = false;
-      });
+      // 3. Delete the section document itself
+      await _firestore.collection('sections').doc(sectionId).delete();
+
+      _showSuccessSnackBar('Section "$sectionTitle" and its sessions deleted successfully!'); // Use sectionTitle
+      _loadAllSections(); // Reload the list of sections
+    } on FirebaseException catch (e) {
+      _showErrorSnackBar('Failed to delete section: ${e.message}');
+      print('Firebase error deleting section: ${e.code} - ${e.message}');
     } catch (e) {
-      setState(() {
-        errorMessage = 'Error loading courses: $e';
-        isLoading = false;
-      });
-      print('Error loading courses: $e');
+      _showErrorSnackBar('An unexpected error occurred: $e');
     }
+  }
+
+  // Helper for snackbars
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1976D2),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
-        title: const Text(
-          'Session Manager',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        elevation: 0,
+        title: const Text('Manage Sections'),
+        backgroundColor: const Color(0xFF1976D2), // Changed to match your design
+        foregroundColor: Colors.white,
       ),
       body: Column(
         children: [
-          // COURSES Section
-          Container(
-            width: double.infinity,
-            margin: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey[400],
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Column(
-              children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  child: const Text(
-                    'CLASS SECTIONS',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _showCreateNewCustomSectionDialog,
+                icon: const Icon(Icons.add, color: Colors.white),
+                label: const Text(
+                  'Create New Custom Section',
+                  style: TextStyle(fontSize: 18, color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange[600],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8.0),
                   ),
                 ),
-                // Course List with loading and error handling
-                Container(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.5,
-                  ),
-                  child: isLoading
-                      ? // Show loading indicator while data is being fetched
-                      const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(20.0),
-                            child: CircularProgressIndicator(),
-                          ),
-                        )
-                      : errorMessage.isNotEmpty
-                          ? // Show error message if something went wrong
-                          Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(20.0),
-                                child: Text(
-                                  errorMessage,
-                                  style: const TextStyle(color: Colors.red),
-                                  textAlign: TextAlign.center,
-                                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _errorMessage.isNotEmpty
+                    ? Center(child: Text(_errorMessage))
+                    : _allSections.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Text(
+                                'No sections found. Create your first custom section above!',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 18, color: Colors.grey),
                               ),
-                            )
-                          : courses.isEmpty
-                              ? // Show message when no courses are found
-                              const Center(
-                                  child: Padding(
-                                    padding: EdgeInsets.all(20.0),
-                                    child: Text('No courses found'),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(16.0),
+                            itemCount: _allSections.length,
+                            itemBuilder: (context, index) {
+                              final section = _allSections[index];
+                              final bool isCustom = section['sectionType'] == 'custom';
+                              // Ownership check: Now uses 'lecturerEmail' field for UID comparison
+                              final bool isOwnedByMe = _lecturerUid == section['lecturerEmail'];
+
+                              return Card(
+                                margin: const EdgeInsets.only(bottom: 12.0),
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                color: isCustom ? Colors.orange[50] : Colors.white, // Orange tint for custom sections
+                                child: ListTile(
+                                  leading: Icon(
+                                    isCustom ? Icons.folder_special : Icons.folder,
+                                    color: isCustom ? Colors.orange[700] : Colors.blue[600],
                                   ),
-                                )
-                              : // Show the actual course list
-                              ListView.builder(
-                                  shrinkWrap: true,
-                                  itemCount: courses.length,
-                                  itemBuilder: (context, index) {
-                                    // Get individual course data
-                                    Map<String, dynamic> course = courses[index];
-                                    
-                                    return Container(
-                                      margin: const EdgeInsets.symmetric(
-                                        horizontal: 16,
-                                        vertical: 4,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey[300],
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: ListTile(
-                                        // Display section title from Firestore
-                                        title: Text(
-                                          course['sectionTitle'] ?? 'No Title',
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        // Display course ID from Firestore
-                                        subtitle: Text(
-                                          course['courseId'] ?? 'No ID',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey[600],
-                                          ),
-                                        ),
-                                        trailing: Text(
-                                            '»', style: TextStyle(
-                                              fontSize: 24,
-                                              color: Colors.grey,
-                                              fontWeight: FontWeight.bold,
+                                  title: Text(
+                                    section['sectionTitle'] ?? 'Unnamed Section', // Use 'sectionTitle'
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: isCustom ? Colors.orange[800] : Colors.black87,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'Course: ${section['courseId'] ?? 'N/A'}' + (isCustom ? ' (Custom)' : ''),
+                                    style: TextStyle(color: Colors.grey[700]),
+                                  ),
+                                  trailing: isCustom && isOwnedByMe // Show actions only for custom sections owned by the user
+                                      ? PopupMenuButton<String>(
+                                          onSelected: (value) {
+                                            if (value == 'add_participants') {
+                                              _showAddParticipantsDialog(section['id'], section['sectionTitle']); // Pass sectionTitle
+                                            } else if (value == 'rename_section') {
+                                              _showRenameSectionDialog(section['id'], section['sectionTitle']); // Pass sectionTitle
+                                            } else if (value == 'delete_section') {
+                                              _deleteCustomSection(section['id'], section['sectionTitle']); // Pass sectionTitle
+                                            }
+                                          },
+                                          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                            const PopupMenuItem<String>(
+                                              value: 'add_participants',
+                                              child: ListTile(
+                                                leading: Icon(Icons.group_add),
+                                                title: Text('Add Participants'),
+                                              ),
                                             ),
-                                        ),
-                                        onTap: () {
-                                          Navigator.pushNamed(
-                                            context,
-                                            AppRoutes.sessionPage,  // This resolves to '/session-page'
-                                            arguments: {
-                                              'courseId': course['courseId'],
-                                              'documentId': course['documentId'],
-                                              },
-                                              );
-                                              },
-                                      ),
-                                    );
+                                            const PopupMenuItem<String>(
+                                              value: 'rename_section',
+                                              child: ListTile(
+                                                leading: Icon(Icons.edit),
+                                                title: Text('Rename Section'),
+                                              ),
+                                            ),
+                                            const PopupMenuItem<String>(
+                                              value: 'delete_section',
+                                              child: ListTile(
+                                                leading: Icon(Icons.delete_forever, color: Colors.red),
+                                                title: Text('Delete Section'),
+                                              ),
+                                            ),
+                                          ],
+                                          icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                        )
+                                      : const Icon(Icons.arrow_forward_ios, color: Colors.grey),
+                                  onTap: () {
+                                    // Navigate to SessionManagerPage to manage sessions for this specific section
+                                    Navigator.pushNamed(
+                                      context,
+                                      AppRoutes.sessionPage,
+                                      arguments: {
+                                        'courseId': section['courseId'] ?? 'N/A',
+                                        'documentId': section['id'], // 'id' is the Firestore document ID
+                                      },
+                                    ).then((_) => _loadAllSections()); // Reload sections when returning
                                   },
                                 ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
+                              );
+                            },
+                          ),
           ),
         ],
       ),
     );
-  }
-}
-
-// Additional helper methods for more advanced Firestore operations
-extension CourseListPageExtensions on CourseListState {
-  
-  // Method to refresh the course list (useful for pull-to-refresh)
-  Future<void> refreshCourses() async {
-    await loadCourses();
-  }
-  
-  // Method to filter courses by a specific field (optional)
-  Future<void> loadCoursesByFilter(String field, dynamic value) async {
-    try {
-      setState(() {
-        isLoading = true;
-        errorMessage = '';
-      });
-
-      QuerySnapshot querySnapshot = await FirebaseFirestore.instance
-          .collection('sections')
-          .where(field, isEqualTo: value)
-          .get();
-
-      List<Map<String, dynamic>> loadedCourses = [];
-      for (QueryDocumentSnapshot doc in querySnapshot.docs) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        data['documentId'] = doc.id;
-        loadedCourses.add(data);
-      }
-
-      setState(() {
-        courses = loadedCourses;
-        isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        errorMessage = 'Error loading filtered courses: $e';
-        isLoading = false;
-      });
-    }
   }
 }
