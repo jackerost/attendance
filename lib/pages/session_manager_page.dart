@@ -650,8 +650,6 @@ class SessionManagerState extends State<SessionManagerPage> {
     }
   }
 
-  // Removed _showAddParticipantsDialog and _addParticipantsToSession methods from here.
-
   // Helper for snackbars
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
