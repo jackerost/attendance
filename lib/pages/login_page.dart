@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
-import '../main.dart';
+import '../main.dart'; // Assuming AppRoutes is defined here
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -87,8 +87,13 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Lecturer Login'),
-        backgroundColor: Colors.blueGrey[800],
+        // App bar background color is #8B0000
+        backgroundColor: const Color(0xFF8B0000),
+        title: const Text(
+          'Lecturer Login',
+          // App bar title text color is #FFFDD0
+          style: TextStyle(color: Color(0xFFFFFDD0)),
+        ),
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -106,30 +111,49 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const SizedBox(height: 16),
-                      Icon(
-                        Icons.school,
-                        size: 80,
-                        color: Theme.of(context).primaryColor,
+                      const SizedBox(height: 24), // Increased top spacing for better balance
+                      // Taylor's University logo, adjusted size for better proportionality
+                      Image.asset(
+                        'assets/images/taylors_new.png',
+                        height: 160, // 2x bigger (80 -> 160)
+                        width: 160, // 2x bigger (80 -> 160)
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            Icons.school, // Final fallback if local asset fails
+                            size: 160,
+                            color: const Color(0xFF8B0000),
+                          );
+                        },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 0), // Removed gap after the logo
                       Text(
                         'Lecturer Login',
                         style: Theme.of(context).textTheme.headlineMedium,
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 8), // Adjusted gap
                       Text(
                         'Sign in via Firebase Authentication',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 24), // Adjusted gap before email field
                       TextFormField(
                         controller: _emailController,
                         decoration: const InputDecoration(
                           labelText: 'Email',
                           hintText: 'Enter your email',
                           prefixIcon: Icon(Icons.email),
+                          // Default border color is grey
                           border: OutlineInputBorder(),
+                          // Focused border color is #F4A460
+                          focusedBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: Color(0xFFF4A460)),
+                          ),
+                          // Focused label text color is #F4A460
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderSide: BorderSide(color: Color(0xFFF4A460)),
+                          ),
+                          labelStyle: TextStyle(color: Colors.grey), // Default label color
                         ),
                         keyboardType: TextInputType.emailAddress,
                         validator: (value) {
@@ -142,14 +166,24 @@ class _LoginPageState extends State<LoginPage> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 16), // Adjusted gap
                       TextFormField(
                         controller: _passwordController,
                         decoration: InputDecoration(
                           labelText: 'Password',
                           hintText: 'Enter your password',
                           prefixIcon: const Icon(Icons.lock),
+                          // Default border color is grey
                           border: const OutlineInputBorder(),
+                          // Focused border color is #F4A460
+                          focusedBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Color(0xFFF4A460)),
+                          ),
+                          // Focused label text color is #F4A460
+                          focusedErrorBorder: const OutlineInputBorder(
+                            borderSide: BorderSide(color: Color(0xFFF4A460)),
+                          ),
+                          labelStyle: const TextStyle(color: Colors.grey), // Default label color
                           suffixIcon: IconButton(
                             // Toggle between visibility and visibility_off icons
                             icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
@@ -172,7 +206,7 @@ class _LoginPageState extends State<LoginPage> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 16), // Adjusted gap
                       if (_errorMessage.isNotEmpty) ...[
                         const SizedBox(height: 16),
                         Container(
@@ -196,13 +230,15 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 24), // Adjusted gap before login button
                       SizedBox(
                         width: double.infinity,
                         height: 50,
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _signIn,
                           style: ElevatedButton.styleFrom(
+                            // Changed login button background color to match the top bar (#8B0000)
+                            backgroundColor: const Color(0xFF8B0000),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -218,7 +254,8 @@ class _LoginPageState extends State<LoginPage> {
                                 )
                               : const Text(
                                   'Login',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                  // Login button text color is white
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
                                 ),
                         ),
                       ),
