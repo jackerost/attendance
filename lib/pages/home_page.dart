@@ -223,8 +223,11 @@ class HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Lecturer Dashboard'),
-        backgroundColor: Colors.blueGrey[800],
+        title: const Text(
+          'Lecturer Dashboard',
+          style: TextStyle(color: Color(0xFFFFFDD0)), // Changed text color
+        ),
+        backgroundColor: const Color(0xFF8B0000), // Changed bar color
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -326,7 +329,7 @@ class HomePageState extends State<HomePage> {
                       icon: const Icon (Icons.settings),
                       label: const Text('Session Manager'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color.fromARGB(255, 25, 154, 163),
+                        backgroundColor: const Color(0xFFF4A460), // Changed session manager color
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 12)),
                         onPressed: () {
