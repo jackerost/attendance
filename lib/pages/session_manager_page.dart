@@ -110,27 +110,7 @@ class SessionManagerState extends State<SessionManagerPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Session Details'),
-              if (canEdit)
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit, color: Color.fromARGB(255, 25, 154, 163)),
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        _showEditSessionDialog(session);
-                      },
-                    ),
-                    if (canDelete)
-                      IconButton(
-                        icon: const Icon(Icons.delete, color: Colors.red),
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          _showDeleteConfirmation(session);
-                        },
-                      ),
-                  ],
-                ),
+              // Removed the top right edit and delete icons
             ],
           ),
           content: SingleChildScrollView(
@@ -177,8 +157,8 @@ class SessionManagerState extends State<SessionManagerPage> {
           actions: <Widget>[
             if (canEdit) ...[
               TextButton.icon(
-                icon: const Icon(Icons.edit),
-                label: const Text('Edit'),
+                icon: const Icon(Icons.edit, color: Color(0xFFF4A460)), // Changed edit icon color
+                label: const Text('Edit', style: TextStyle(color: Color(0xFFF4A460))), // Changed edit text color
                 onPressed: () {
                   Navigator.of(context).pop();
                   _showEditSessionDialog(session);
@@ -196,7 +176,7 @@ class SessionManagerState extends State<SessionManagerPage> {
                 ),
             ],
             TextButton(
-              child: const Text('Close'),
+              child: const Text('Close', style: TextStyle(color: Colors.deepPurple)), // Changed close text color to original purple
               onPressed: () => Navigator.of(context).pop(),
             ),
           ],
@@ -217,7 +197,7 @@ class SessionManagerState extends State<SessionManagerPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
+              child: const Text('Cancel', style: TextStyle(color: Colors.deepPurple)), // Changed cancel text color to original purple
             ),
             ElevatedButton(
               onPressed: () async {
@@ -378,7 +358,7 @@ class SessionManagerState extends State<SessionManagerPage> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.deepPurple)), // Changed cancel text color to original purple
                 ),
                 ElevatedButton(
                   onPressed: () async {
@@ -424,6 +404,10 @@ class SessionManagerState extends State<SessionManagerPage> {
                     );
                     if (mounted) Navigator.pop(context); // Close dialog
                   },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A460), // Changed Add Session button color
+                    foregroundColor: Colors.white,
+                  ),
                   child: const Text('Add Session'),
                 ),
               ],
@@ -553,7 +537,7 @@ class SessionManagerState extends State<SessionManagerPage> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.deepPurple)), // Changed cancel text color to original purple
                 ),
                 ElevatedButton(
                   onPressed: () async {
@@ -599,6 +583,10 @@ class SessionManagerState extends State<SessionManagerPage> {
                     );
                     if (mounted) Navigator.pop(context);
                   },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A460), // Changed update session button color
+                    foregroundColor: Colors.white,
+                  ),
                   child: const Text('Update Session'),
                 ),
               ],
@@ -675,8 +663,11 @@ class SessionManagerState extends State<SessionManagerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_sectionTitle.isEmpty ? 'Manage Sessions' : 'Sessions for $_sectionTitle'),
-        backgroundColor: const Color(0xFF1976D2), // Changed to match your design
+        title: Text(
+          _sectionTitle.isEmpty ? 'Manage Sessions' : 'Sessions for $_sectionTitle',
+          style: const TextStyle(color: Color(0xFFFFFDD0)), // Changed text color
+        ),
+        backgroundColor: const Color(0xFF8B0000), // Changed bar color
         foregroundColor: Colors.white,
       ),
       body: Column(
@@ -768,13 +759,13 @@ class SessionManagerState extends State<SessionManagerPage> {
                 height: 50,
                 child: ElevatedButton.icon(
                   onPressed: _showAddSessionDialog,
-                  icon: const Icon(Icons.add, color: Colors.white),
+                  icon: const Icon(Icons.add, color: Color(0xFFFFFDD0)), // Changed icon color
                   label: const Text(
                     'Add Custom Session',
-                    style: TextStyle(fontSize: 18, color: Colors.white),
+                    style: TextStyle(fontSize: 18, color: Color(0xFFFFFDD0)), // Changed text color
                   ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange[600],
+                    backgroundColor: const Color(0xFFF4A460), // Changed button color
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8.0),
                     ),

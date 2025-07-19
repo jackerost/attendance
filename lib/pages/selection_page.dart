@@ -9,8 +9,12 @@ class SelectionPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Selection'),
-        backgroundColor: Colors.blueGrey[800]),
+        title: const Text(
+          'Selection',
+          style: TextStyle(color: Color(0xFFFFFDD0)), // Changed text color
+        ),
+        backgroundColor: const Color(0xFF8B0000), // Changed bar color
+      ),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
@@ -33,7 +37,7 @@ class SelectionPage extends StatelessWidget {
               context: context,
               title: 'STRICT',
               description: 'Card Scanning + Facial Recognition',
-              color: const Color.fromARGB(255, 241, 54, 101)!,
+              color: const Color(0xFF5F4B8B), // Changed STRICT button bar color
               onPressed: () {
                 // Navigator.push(context, MaterialPageRoute(builder: (context) => StrictModePage()));
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -49,7 +53,7 @@ class SelectionPage extends StatelessWidget {
               context: context,
               title: 'LENIENT',
               description: 'Card Scanning Only',
-              color: const Color.fromARGB(255, 20, 92, 248)!,
+              color: const Color(0xFFE2725B), // Changed LENIENT button bar color
               onPressed: () {
                 Navigator.pushNamed(
                   context,

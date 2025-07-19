@@ -29,7 +29,7 @@ class ScannedStudentList extends StatelessWidget {
                 : null,
           ),
           title: Text(student.name),
-          subtitle: Text('ID: ${student.id}'),
+          subtitle: Text('ID: ${student.studentId}'),
         );
       },
     );

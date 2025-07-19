@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart';
 import 'package:logger/logger.dart'; // Added for logging
 import '../main.dart'; // For AppRoutes
-import 'session_manager_page.dart'; // For navigating to manage sessions for a specific section
 
 class CourseListPage extends StatefulWidget {
   const CourseListPage({super.key});
@@ -125,6 +123,10 @@ class CourseListPageState extends State<CourseListPage> {
                 await _createCustomSection(sectionTitleController.text.trim());
                 if (mounted) Navigator.pop(context);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4A460), // Changed button color
+                foregroundColor: Colors.white, // Changed text color
+              ),
               child: const Text('Create'),
             ),
           ],
@@ -244,8 +246,11 @@ class CourseListPageState extends State<CourseListPage> {
                   return;
                 }
                 await _addParticipantsToSection(sectionId, studentIdsController.text.trim());
-                if (mounted) Navigator.pop(context);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4A460), // Changed button color
+                foregroundColor: Colors.white, // Changed text color
+              ),
               child: const Text('Add Participants'),
             ),
           ],
@@ -348,6 +353,8 @@ class CourseListPageState extends State<CourseListPage> {
     } catch (e) {
       _logger.e('Unexpected error: $e');
       _showErrorSnackBar('An unexpected error occurred: $e');
+    } finally {
+      if (mounted) Navigator.pop(context); // Close dialog after adding participants
     }
   }
 
@@ -380,9 +387,13 @@ class CourseListPageState extends State<CourseListPage> {
                   );
                   return;
                 }
-                await _renameCustomSection(sectionId, newTitleController.text.trim());
+                await _renameCustomSection(newTitleController.text.trim(), sectionId); // Corrected argument order
                 if (mounted) Navigator.pop(context);
               },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF4A460), // Changed button color
+                foregroundColor: Colors.white, // Changed text color
+              ),
               child: const Text('Rename'),
             ),
           ],
@@ -401,7 +412,7 @@ class CourseListPageState extends State<CourseListPage> {
   }
 
   // --- Rename a custom section with ownership check ---
-  Future<void> _renameCustomSection(String sectionId, String newTitle) async {
+  Future<void> _renameCustomSection(String newTitle, String sectionId) async { // Corrected argument order
     if (_lecturerUid == null) {
       _showErrorSnackBar('User not logged in. Cannot rename section.');
       return;
@@ -522,8 +533,11 @@ class CourseListPageState extends State<CourseListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Manage Sections'),
-        backgroundColor: const Color(0xFF1976D2),
+        title: const Text(
+          'Manage Sections',
+          style: TextStyle(color: Color(0xFFFFFDD0)), // Changed text color
+        ),
+        backgroundColor: const Color(0xFF8B0000), // Changed bar color
         foregroundColor: Colors.white,
       ),
       body: Column(
@@ -538,10 +552,10 @@ class CourseListPageState extends State<CourseListPage> {
                 icon: const Icon(Icons.add, color: Colors.white),
                 label: const Text(
                   'Create New Custom Section',
-                  style: TextStyle(fontSize: 18, color: Colors.white),
+                  style: TextStyle(fontSize: 18, color: Color(0xFFFFFDD0)), // Changed text color
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.orange[600],
+                  backgroundColor: const Color(0xFFF4A460), // Changed button color
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8.0),
                   ),
@@ -577,17 +591,17 @@ class CourseListPageState extends State<CourseListPage> {
                                 margin: const EdgeInsets.only(bottom: 12.0),
                                 elevation: 2,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                                color: isCustom ? Colors.orange[50] : Colors.white,
+                                color: isCustom ? Colors.white : Colors.white, // Custom sections will have their own color
                                 child: ListTile(
                                   leading: Icon(
                                     isCustom ? Icons.folder_special : Icons.folder,
-                                    color: isCustom ? Colors.orange[700] : Colors.blue[600],
+                                    color: isCustom ? const Color(0xFFF4A460) : const Color(0xFF8B0000), // Changed folder colors
                                   ),
                                   title: Text(
                                     section['sectionTitle'] ?? 'Unnamed Section',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: isCustom ? Colors.orange[800] : Colors.black87,
+                                      color: isCustom ? const Color(0xFFF4A460) : Colors.black87, // Changed text color
                                     ),
                                   ),
                                   subtitle: Text(
@@ -628,7 +642,7 @@ class CourseListPageState extends State<CourseListPage> {
                                               ),
                                             ),
                                           ],
-                                          icon: const Icon(Icons.more_vert, color: Colors.grey),
+                                          icon: const Icon(Icons.settings, color: Colors.grey), // Changed icon to settings gear
                                         )
                                       : const Icon(Icons.arrow_forward_ios, color: Colors.grey),
                                   onTap: () {

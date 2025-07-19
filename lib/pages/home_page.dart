@@ -307,7 +307,7 @@ class HomePageState extends State<HomePage> {
                                 ? 'Continue Attendance Session' 
                                 : 'Find Active Session'),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blue,
+                                backgroundColor: _hasActiveSession ? const Color(0xFF32CD32) : Colors.blue, // Changed color based on active session
                                 foregroundColor: Colors.white,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),

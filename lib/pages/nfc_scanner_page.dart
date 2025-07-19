@@ -17,8 +17,8 @@ class NFCScannerPage extends StatefulWidget {
 
 class _NFCScannerPageState extends State<NFCScannerPage> {
   final List<Student> _scannedStudents = [];
-  bool _isScanning = false;
-  String _status = 'Tap to scan';
+  bool _isScanning = false; // This will now be the toggle state
+  String _status = 'Tap to start scanning';
   final Logger logger = Logger();
   final NFCService _nfcService = NFCService();
   final AttendanceService _attendanceService = AttendanceService();
@@ -30,6 +30,31 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
     // from the constructor (SelectionPage will pass it).
   }
 
+  // Toggle scan state
+  void _toggleScan() {
+    setState(() {
+      _isScanning = !_isScanning;
+      if (_isScanning) {
+        _status = 'Scanning...';
+        _startContinuousScan(); // Start continuous scanning
+      } else {
+        _status = 'Tap to start scanning';
+        // Removed _nfcService.stopScan() as it's not defined in NFCService
+        // If NFCService needs a stop method, it must be implemented there.
+      }
+    });
+  }
+
+  // Continuous scanning loop
+  Future<void> _startContinuousScan() async {
+    while (_isScanning) {
+      await _scanTag();
+      if (_isScanning) { // Only delay if still scanning
+        await Future.delayed(const Duration(seconds: 1)); // Small delay between scans
+      }
+    }
+  }
+
   Future<void> _scanTag() async {
     if (widget.sessionId.isEmpty) { // Using widget.sessionId directly
       ScaffoldMessenger.of(context).showSnackBar(
@@ -38,14 +63,16 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
           backgroundColor: Colors.red,
         ),
       );
+      // If no session, stop scanning
+      setState(() {
+        _isScanning = false;
+        _status = 'No active session';
+      });
       return;
     }
 
-    setState(() {
-      _isScanning = true;
-      _status = 'Scanning...';
-      logger.d('Starting NFC scan for session: ${widget.sessionId}');
-    });
+    // Do not change _status here to "Scanning..." as it's already set by _toggleScan
+    logger.d('Starting NFC scan for session: ${widget.sessionId}');
 
     try {
       final student = await _nfcService.scanAndFetchStudent();
@@ -64,6 +91,7 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
               backgroundColor: Colors.red,
             ),
           );
+          // If session not found, stop scanning
           setState(() => _isScanning = false);
           return;
         }
@@ -85,6 +113,7 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
               backgroundColor: Colors.red,
             ),
           );
+          // If no user, stop scanning
           setState(() => _isScanning = false);
           return; // Stop further processing if no user is authenticated
         }
@@ -107,9 +136,8 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
           successMessage = 'Attendance already completed for ${student.name}';
           setState(() {
             _status = successMessage;
-            _isScanning = false;
           });
-          ScaffoldMessenger.of(context).showSnackBar(
+          ScaffoldMessenger.of(context).showSnackBar( // Snackbar for already completed
             SnackBar(
               content: Text(successMessage),
               backgroundColor: Colors.blueGrey,
@@ -152,7 +180,7 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
               _handleAttendanceResult(result, successMessage, student);
             } else {
               _status = 'Special attendance cancelled: No reason provided.';
-              ScaffoldMessenger.of(context).showSnackBar(
+              ScaffoldMessenger.of(context).showSnackBar( // Snackbar for cancelled special attendance
                 const SnackBar(
                   content: Text('Special attendance cancelled: No reason provided.'),
                   backgroundColor: Colors.orange,
@@ -161,7 +189,7 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
             }
           } else {
             _status = 'Attendance not marked: Student not enrolled.';
-            ScaffoldMessenger.of(context).showSnackBar(
+            ScaffoldMessenger.of(context).showSnackBar( // Snackbar for not marked attendance
               const SnackBar(
                 content: Text('Attendance not marked: Student not enrolled in this section.'),
                 backgroundColor: Colors.orange,
@@ -176,7 +204,7 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
         setState(() {
           _status = 'Tag not recognized';
         });
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(context).showSnackBar( // Snackbar for tag not recognized
           const SnackBar(
             content: Text('Unknown tag or error occurred'),
             backgroundColor: Colors.orange,
@@ -192,8 +220,10 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
           backgroundColor: Colors.red,
         ),
       );
-    } finally {
+      // If error, stop scanning
       setState(() => _isScanning = false);
+    } finally {
+      // Do not set _isScanning to false here, it's controlled by the toggle
       logger.d('NFC scan process finished.');
     }
   }
@@ -208,7 +238,7 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
           _scannedStudents.add(student);
         }
       });
-      ScaffoldMessenger.of(context).showSnackBar(
+      ScaffoldMessenger.of(context).showSnackBar( // Snackbar for successful attendance
         SnackBar(
           content: Text(successMessage),
           backgroundColor: Colors.green,
@@ -297,19 +327,25 @@ class _NFCScannerPageState extends State<NFCScannerPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('NFC Attendance'),
-        backgroundColor: Colors.blueGrey[800],
+        title: const Text(
+          'NFC Attendance',
+          style: TextStyle(color: Color(0xFFFFFDD0)), // Changed text color
+        ),
+        backgroundColor: const Color(0xFF8B0000), // Changed bar color
       ),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(
-              onPressed: _isScanning ? null : _scanTag,
-              icon: const Icon(Icons.nfc),
-              label: Text(_isScanning ? 'Scanning...' : 'Scan Student Tag'),
+              onPressed: _toggleScan, // Now a toggle button
+              icon: Icon(_isScanning ? Icons.stop : Icons.nfc, color: const Color(0xFFFFFDD0)), // Icon changes with state
+              label: Text(
+                _isScanning ? 'Stop Scanning' : 'Scan Student Tag',
+                style: const TextStyle(color: Color(0xFFFFFDD0)), // Changed text color
+              ),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
+                backgroundColor: const Color(0xFFF4A460), // Changed bar color
                 padding: const EdgeInsets.symmetric(vertical: 14.0),
               ),
             ),
