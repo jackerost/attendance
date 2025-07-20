@@ -90,7 +90,7 @@ class _LoginPageState extends State<LoginPage> {
         // App bar background color is #8B0000
         backgroundColor: const Color(0xFF8B0000),
         title: const Text(
-          'Lecturer Login',
+          'Login Page',
           // App bar title text color is #FFFDD0
           style: TextStyle(color: Color(0xFFFFFDD0)),
         ),
@@ -128,12 +128,12 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 0), // Removed gap after the logo
                       Text(
-                        'Lecturer Login',
+                        "Taylor's NFC App",
                         style: Theme.of(context).textTheme.headlineMedium,
                       ),
                       const SizedBox(height: 8), // Adjusted gap
                       Text(
-                        'Sign in via Firebase Authentication',
+                        "Sign in via Taylor's Account",
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 24), // Adjusted gap before email field
