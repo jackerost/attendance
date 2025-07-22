@@ -125,9 +125,9 @@ class SessionManagerState extends State<SessionManagerPage> {
                     ? DateFormat('dd MMM, hh:mm a').format((session['endTime'] as Timestamp).toDate().toLocal())
                     : 'N/A'),
                 _buildDetailRow('Course ID', session['courseId']),
-                _buildDetailRow('Section ID', session['sectionId']),
+                //_buildDetailRow('Section ID', session['sectionId']),
                 // Removed attendees from here if they're no longer managed via sessions UI directly
-                _buildDetailRow('Attendees', (session['attendees'] as List?)?.join(', ') ?? 'None'),
+                //_buildDetailRow('Attendees', (session['attendees'] as List?)?.join(', ') ?? 'None'),
 
                 if (_isCustomSection)
                   Container(
