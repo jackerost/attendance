@@ -10,12 +10,15 @@ import 'pages/nfc_scanner_page.dart';
 import 'pages/selection_page.dart';
 import 'pages/course_list_page.dart';
 import 'pages/session_manager_page.dart';
+import 'pages/bulk_self_scan_page.dart';
+import 'pages/student_self_scan_page.dart';
 
 // Import services
 import 'services/firebase_auth_service.dart';
 
 // Import utils
 import 'utils/constants.dart';
+import 'routes.dart';
 
 void main() async {
   // Ensure Flutter is initialized
@@ -83,8 +86,14 @@ class MyApp extends StatelessWidget {
             return SessionManagerPage(
               courseId: courseId,
               documentId: documentId,
-              );
-              },
+            );
+          },
+          // Self-scan routes
+          AppRoutes.bulkSelfScan: (context) {
+            final sessionId = ModalRoute.of(context)!.settings.arguments as String;
+            return BulkSelfScanPage(sessionId: sessionId);
+          },
+          AppRoutes.studentSelfScan: (context) => const StudentSelfScanPage(),
         },
         // If route isn't found, redirect to login
         onUnknownRoute: (settings) {
@@ -135,6 +144,8 @@ class AppRoutes {
   static const String selector = '/select-page';
   static const String courseList = '/course-page';
   static const String sessionPage = '/session-page';
+  static const String bulkSelfScan = '/bulk-self-scan';
+  static const String studentSelfScan = '/student-self-scan';
   
   // Prevent instantiation
   AppRoutes._();

@@ -349,6 +349,49 @@ class HomePageState extends State<HomePage> {
                             color: Color.fromARGB(255, 114, 114, 114), // Adjusted color
                             ),
                             ),
+                            
+                        // Student Self Check In & Out button - for students only
+                        const SizedBox(height: 20),
+                        FutureBuilder<QuerySnapshot>(
+                          future: FirebaseFirestore.instance
+                              .collection('students')
+                              .where('email', isEqualTo: _auth.currentUser?.email)
+                              .limit(1)
+                              .get(),
+                          builder: (context, snapshot) {
+                            // Only show the button if the current user is a student
+                            if (snapshot.hasData && snapshot.data != null && snapshot.data!.docs.isNotEmpty) {
+                              return Column(
+                                children: [
+                                  SizedBox(
+                                    width: double.infinity,
+                                    child: ElevatedButton.icon(
+                                      icon: const Icon(Icons.qr_code_scanner),
+                                      label: const Text('Self Check In & Out'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF1E8449), // Green color for self-scan
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                      ),
+                                      onPressed: () {
+                                        Navigator.pushNamed(context, AppRoutes.studentSelfScan);
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  const Text(
+                                    'Scan yourself into active sessions nearby.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Color.fromARGB(255, 114, 114, 114),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            }
+                            return const SizedBox.shrink(); // Hide if not a student
+                          },
+                        ),
 
                         ],
                       ),

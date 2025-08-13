@@ -20,6 +20,9 @@ class Student {
   /// URL to student's profile photo (optional)
   final String? photoUrl;
   
+  /// NFC card tag ID (for attendance verification)
+  final String? tagId;
+  
   /// IDs of courses the student is enrolled in
   final List<String> enrolledSections;
   
@@ -51,6 +54,7 @@ class Student {
     required this.email,
     required this.studentId,
     this.photoUrl,
+    this.tagId,
     required this.enrolledSections,
     //required this.department,
     //required this.yearOfStudy,
@@ -69,7 +73,7 @@ class Student {
     final data = doc.data() as Map<String, dynamic>? ?? {};
     
     // Extract timestamp and convert to DateTime, defaulting to current time if null
-    final Timestamp timestamp = data['intake'] ?? Timestamp.now();
+    // Note: intake timestamp not currently used
     
     return Student(
       id: doc.id,
@@ -90,10 +94,7 @@ class Student {
 
   /// Creates a Student object from a map of data (useful for API responses)
   factory Student.fromMap(Map<String, dynamic> data, String id) {
-    // Extract timestamp and convert to DateTime, defaulting to current time if null
-    final Timestamp timestamp = data['intake'] is Timestamp 
-        ? data['intake'] 
-        : Timestamp.now();
+    // Note: intake timestamp not currently used
     
     return Student(
       id: id,

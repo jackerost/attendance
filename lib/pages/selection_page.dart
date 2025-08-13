@@ -62,6 +62,23 @@ class SelectionPage extends StatelessWidget {
                 );
               },
             ),
+            
+            const SizedBox(height: 24),
+            
+            // BULK Button for Self Check-In/Out
+            _buildSelectionButton(
+              context: context,
+              title: 'BULK',
+              description: 'Student Self Check-In & Out',
+              color: const Color(0xFF1E8449), // Green color for BULK button
+              onPressed: () {
+                Navigator.pushNamed(
+                  context,
+                  AppRoutes.bulkSelfScan,
+                  arguments: sessionId,
+                );
+              },
+            ),
           ],
         ),
       ),
