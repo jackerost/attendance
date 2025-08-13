@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:dchs_flutter_beacon/dchs_flutter_beacon.dart' hide BeaconBroadcast;
 import 'package:beacon_broadcast/beacon_broadcast.dart';
@@ -94,20 +93,28 @@ class BLEService {
         return false;
       }
 
-      // Generate a UUID for the beacon
+      // Get the fixed app beacon UUID
       final beaconId = _generateBeaconId(sessionId, mode);
+      
+      // Calculate lecturer-specific major ID
+      final lecturerMajor = _getLecturerMajor();
+      
+      // Calculate session-specific minor ID
+      final sessionMinor = _getSessionMinor(sessionId, mode);
 
-      // Update Firestore with the beacon ID
+      // Update Firestore with the beacon ID and identifiers
       await _firestore.collection('sessions').doc(sessionId).update({
         'beaconId': beaconId,
-        'beaconMode': mode, // This is optional if you want to track mode in Firestore
+        'beaconMajor': lecturerMajor,
+        'beaconMinor': sessionMinor,
+        'beaconMode': mode,
         'beaconUpdatedAt': FieldValue.serverTimestamp(),
       });
 
       // Configure beacon broadcast
       await _beaconBroadcast.setUUID(beaconId);
-      await _beaconBroadcast.setMajorId(1);
-      await _beaconBroadcast.setMinorId(100);
+      await _beaconBroadcast.setMajorId(lecturerMajor);
+      await _beaconBroadcast.setMinorId(sessionMinor);
       await _beaconBroadcast.setIdentifier('attendance.lecturer.beacon');
       await _beaconBroadcast.setTransmissionPower(-59); // Default power
       await _beaconBroadcast.setManufacturerId(0x004C);
@@ -157,19 +164,28 @@ class BLEService {
     }
   }
 
+  /// Fixed app UUID for all beacons
+  static const String _APP_BEACON_UUID = '74278BDA-B644-4520-8F0C-720EAF059935';
+  
   /// Generate a beacon ID based on session ID and mode
   String _generateBeaconId(String sessionId, String mode) {
-    // Use a deterministic UUID based on session and mode
-    // This ensures the same UUID is generated for the same session+mode
-    final baseUuid = '74278BDA-B644-4520-8F0C-720EAF059935'; // Base UUID
-    
-    // Simple deterministic transformation based on session ID and mode
-    // In production, use a more sophisticated algorithm
-    final modeDigit = mode.toLowerCase() == 'entry' ? '1' : '2';
-    final truncatedSessionId = sessionId.substring(0, math.min(8, sessionId.length));
-    final modifiedUuid = baseUuid.replaceRange(9, 13, '$modeDigit$truncatedSessionId');
-    
-    return modifiedUuid;
+    // Always return the fixed app UUID - unchanged and valid format
+    return _APP_BEACON_UUID;
+  }
+  
+  /// Generate major ID based on lecturer UID
+  int _getLecturerMajor() {
+    final currentUserUid = _auth.currentUser?.uid;
+    // Generate a stable 16-bit hash from the lecturer's UID
+    return (currentUserUid?.hashCode ?? 0) & 0xFFFF;
+  }
+  
+  /// Generate minor ID based on session and mode
+  int _getSessionMinor(String sessionId, String mode) {
+    // Use 15 bits for session hash, highest bit for mode
+    final sessionBits = sessionId.hashCode & 0x7FFF;  // Lower 15 bits
+    final modeBit = (mode.toLowerCase() == 'exit') ? 0x8000 : 0;  // Highest bit
+    return sessionBits | modeBit;
   }
 
   /// Start scanning for BLE beacons for nearby sessions
@@ -217,21 +233,24 @@ class BLEService {
         return false;
       }
       
-      // Create a map of beacon IDs to session data for lookup during scanning
-      final beaconSessions = <String, Map<String, dynamic>>{};
+      // Create a map of sessions data for lookup during scanning
+      final activeSessions = <Map<String, dynamic>>[];
       for (final doc in sessionsSnapshot.docs) {
         final data = doc.data();
         final beaconId = data['beaconId'] as String?;
-        if (beaconId != null) {
-          beaconSessions[beaconId] = {
+        final beaconMajor = data['beaconMajor'] as int?;
+        final beaconMinor = data['beaconMinor'] as int?;
+        
+        if (beaconId != null && beaconMajor != null && beaconMinor != null) {
+          activeSessions.add({
             ...data,
             'sessionId': doc.id,
-          };
+          });
         }
       }
       
-      if (beaconSessions.isEmpty) {
-        _logger.e('No beacon IDs found in active sessions');
+      if (activeSessions.isEmpty) {
+        _logger.e('No active sessions with beacons found');
         return false;
       }
 
@@ -240,11 +259,11 @@ class BLEService {
       _hasMetDetectionThreshold = false;
       _firstDetectionTime = null;
       
-      // Create regions to scan for - one for each beacon ID
-      final regions = beaconSessions.keys.map((uuid) => Region(
-        identifier: 'attendance.student.scanner.$uuid',
-        proximityUUID: uuid,
-      )).toList();
+      // Create a region for our app UUID - we only need one region since we use the same UUID
+      final regions = [Region(
+        identifier: 'attendance.student.scanner',
+        proximityUUID: _APP_BEACON_UUID,
+      )];
 
       // Variables to track which session we've detected
       String? detectedSessionId;
@@ -264,10 +283,15 @@ class BLEService {
             // Get the nearest beacon
             final nearestBeacon = beacons.first;
             
-            // Find the session data for this beacon
-            final foundSession = beaconSessions[nearestBeacon.proximityUUID];
+            // Find the session data based on major and minor
+            final foundSession = activeSessions.firstWhere(
+              (session) => 
+                session['beaconMajor'] == nearestBeacon.major && 
+                session['beaconMinor'] == nearestBeacon.minor,
+              orElse: () => <String, dynamic>{},
+            );
             
-            if (foundSession != null) {
+            if (foundSession.isNotEmpty) {
               detectedSessionId = foundSession['sessionId'];
               detectedMode = foundSession['beaconMode'] ?? 'entry';
               detectedSessionData = foundSession;
