@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter_beacon/flutter_beacon.dart' hide BeaconBroadcast;
+import 'package:dchs_flutter_beacon/dchs_flutter_beacon.dart' hide BeaconBroadcast;
 import 'package:beacon_broadcast/beacon_broadcast.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -48,18 +48,25 @@ class BLEService {
     }
 
     try {
-      // Request permissions
-      var status = await Permission.bluetoothAdvertise.request();
-      if (!status.isGranted) {
-        _logger.w('Bluetooth advertise permission not granted');
-        return false;
-      }
-
-      // Also need location permission for some devices
-      status = await Permission.locationWhenInUse.request();
-      if (!status.isGranted) {
-        _logger.w('Location permission not granted');
-        return false;
+      // Check for Bluetooth permissions
+      if (await Permission.bluetooth.isDenied ||
+          await Permission.bluetoothAdvertise.isDenied || 
+          await Permission.bluetoothConnect.isDenied ||
+          await Permission.locationWhenInUse.isDenied) {
+        
+        // Request all required Bluetooth permissions
+        Map<Permission, PermissionStatus> statuses = await [
+          Permission.bluetooth,
+          Permission.bluetoothAdvertise,
+          Permission.bluetoothConnect,
+          Permission.locationWhenInUse,
+        ].request();
+        
+        // Check if any permission was denied
+        if (statuses.values.any((status) => !status.isGranted)) {
+          _logger.w('Bluetooth or location permissions not granted: $statuses');
+          return false;
+        }
       }
 
       // Check if user is authorized for this session
@@ -172,21 +179,28 @@ class BLEService {
     required Function() onBeaconLost,
   }) async {
     try {
-      // Initialize flutter_beacon
+      // Initialize beacon scanning
       await flutterBeacon.initializeScanning;
       
-      // Request permissions
-      var status = await Permission.bluetoothScan.request();
-      if (!status.isGranted) {
-        _logger.w('Bluetooth scan permission not granted');
-        return false;
-      }
-
-      // Also need location permission
-      status = await Permission.locationWhenInUse.request();
-      if (!status.isGranted) {
-        _logger.w('Location permission not granted');
-        return false;
+      // Check for Bluetooth scanning permissions
+      if (await Permission.bluetooth.isDenied ||
+          await Permission.bluetoothScan.isDenied || 
+          await Permission.bluetoothConnect.isDenied ||
+          await Permission.locationWhenInUse.isDenied) {
+        
+        // Request all required Bluetooth permissions
+        Map<Permission, PermissionStatus> statuses = await [
+          Permission.bluetooth,
+          Permission.bluetoothScan,
+          Permission.bluetoothConnect,
+          Permission.locationWhenInUse,
+        ].request();
+        
+        // Check if any permission was denied
+        if (statuses.values.any((status) => !status.isGranted)) {
+          _logger.w('Bluetooth or location permissions not granted: $statuses');
+          return false;
+        }
       }
 
       // Get all active sessions with beacon IDs
