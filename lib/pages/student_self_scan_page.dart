@@ -7,7 +7,9 @@ import 'package:logger/logger.dart';
 import '../services/ble_service.dart';
 import '../services/nfc_service.dart';
 import '../services/attendance_service.dart';
+import '../services/selfscancheck.dart';
 import '../models/student.dart';
+import '../models/security_check_result.dart';
 import '../widgets/ble_status_widget.dart';
 import '../widgets/self_scan_confirmation_widget.dart';
 import '../utils/ble_detection_status.dart';
@@ -16,16 +18,17 @@ class StudentSelfScanPage extends StatefulWidget {
   const StudentSelfScanPage({super.key});
 
   @override
-  State<StudentSelfScanPage> createState() => _StudentSelfScanPageState();
+  _StudentSelfScanPageState createState() => _StudentSelfScanPageState();
 }
 
 class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsBindingObserver {
-  final Logger _logger = Logger();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
   final BLEService _bleService = BLEService();
   final NFCService _nfcService = NFCService();
   final AttendanceService _attendanceService = AttendanceService();
+  final SelfScanCheckService _selfScanCheckService = SelfScanCheckService();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final Logger _logger = Logger();
   
   // BLE detection state
   bool _isBLEScanning = false;
@@ -217,9 +220,9 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
           : AttendanceScanType.exit;
       
       // Use NFCService to scan the card and get student info
-      final nfcStudent = await _nfcService.scanAndFetchStudent();
+      final tagId = await _nfcService.scanTag();
       
-      if (nfcStudent == null) {
+      if (tagId == null) {
         setState(() {
           _scanningNFC = false;
           _errorMessage = 'Failed to scan NFC card';
@@ -228,20 +231,67 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
         return;
       }
       
-      // Check if the scanned card belongs to the current student
-      if (nfcStudent.studentId != _currentStudent!.studentId) {
+      // Check if the user is allowed to self-scan
+      final canSelfScanResult = await _selfScanCheckService.canUserSelfScan();
+      if (!canSelfScanResult.success) {
         setState(() {
           _scanningNFC = false;
-          _errorMessage = 'The scanned card does not belong to you';
+          _errorMessage = canSelfScanResult.message;
         });
-        _showSnackBar('The scanned card does not belong to you. Please use your own ID card.');
+        _showSnackBar(canSelfScanResult.message);
         return;
       }
       
-      // Mark attendance using AttendanceService
+      // Verify that the NFC card belongs to the logged-in user
+      final verificationResult = await _selfScanCheckService.verifyNfcCardOwnership(tagId);
+      
+      if (!verificationResult.success) {
+        setState(() {
+          _scanningNFC = false;
+          _errorMessage = verificationResult.message;
+        });
+        _showSnackBar(verificationResult.message);
+        return;
+      }
+      
+      // Extract the verified student from the result data
+      final verifiedStudent = verificationResult.data as Student;
+      
+      // Verify student enrollment in section
+      final enrollmentResult = await _selfScanCheckService.verifyStudentEnrollment(
+        verifiedStudent.studentId, 
+        _sessionData!['sectionId'] ?? ''
+      );
+      
+      if (!enrollmentResult.success) {
+        setState(() {
+          _scanningNFC = false;
+          _errorMessage = enrollmentResult.message;
+        });
+        _showSnackBar(enrollmentResult.message);
+        return;
+      }
+      
+      // Check if the user can mark attendance for this session
+      final canMarkResult = await _selfScanCheckService.canMarkAttendance(
+        _detectedSessionId!,
+        verifiedStudent.studentId,
+        attendanceScanType
+      );
+      
+      if (!canMarkResult.success) {
+        setState(() {
+          _scanningNFC = false;
+          _errorMessage = canMarkResult.message;
+        });
+        _showSnackBar(canMarkResult.message);
+        return;
+      }
+      
+      // All verifications passed - mark attendance using AttendanceService
       await _attendanceService.markAttendance(
         sessionId: _detectedSessionId!,
-        studentId: _currentStudent!.studentId,
+        studentId: verifiedStudent.studentId,
         courseId: _sessionData!['courseId'] ?? '',
         sectionId: _sessionData!['sectionId'] ?? '',
         scanType: attendanceScanType,
@@ -252,7 +302,7 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
         _scanningNFC = false;
         _showConfirmation = true;
         _attendanceRecord = {
-          'student': _currentStudent!.toMap(), // Using toMap instead of toJson
+          'student': verifiedStudent.toMap(),
           'sessionData': _sessionData,
           'attendanceType': _detectedMode,
           'timestamp': Timestamp.now(),
