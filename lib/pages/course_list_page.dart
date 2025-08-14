@@ -540,127 +540,129 @@ class CourseListPageState extends State<CourseListPage> {
         backgroundColor: const Color(0xFF8B0000), // Changed bar color
         foregroundColor: Colors.white,
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton.icon(
-                onPressed: _showCreateNewCustomSectionDialog,
-                icon: const Icon(Icons.add, color: Colors.white),
-                label: const Text(
-                  'Create New Custom Section',
-                  style: TextStyle(fontSize: 18, color: Color(0xFFFFFDD0)), // Changed text color
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF4A460), // Changed button color
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8.0),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: double.infinity,
+                height: 50,
+                child: ElevatedButton.icon(
+                  onPressed: _showCreateNewCustomSectionDialog,
+                  icon: const Icon(Icons.add, color: Colors.white),
+                  label: const Text(
+                    'Create New Custom Section',
+                    style: TextStyle(fontSize: 18, color: Color(0xFFFFFDD0)), // Changed text color
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF4A460), // Changed button color
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.0),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _errorMessage.isNotEmpty
-                    ? Center(child: Text(_errorMessage))
-                    : _allSections.isEmpty
-                        ? const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(16.0),
-                              child: Text(
-                                'No sections found. Create your first custom section above!',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(fontSize: 18, color: Colors.grey),
-                              ),
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(16.0),
-                            itemCount: _allSections.length,
-                            itemBuilder: (context, index) {
-                              final section = _allSections[index];
-                              final bool isCustom = section['sectionType'] == 'custom';
-                              final bool isOwnedByMe = _lecturerUid == section['lecturerEmail'];
-
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 12.0),
-                                elevation: 2,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
-                                color: isCustom ? Colors.white : Colors.white, // Custom sections will have their own color
-                                child: ListTile(
-                                  leading: Icon(
-                                    isCustom ? Icons.folder_special : Icons.folder,
-                                    color: isCustom ? const Color(0xFFF4A460) : const Color(0xFF8B0000), // Changed folder colors
-                                  ),
-                                  title: Text(
-                                    section['sectionTitle'] ?? 'Unnamed Section',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: isCustom ? const Color(0xFFF4A460) : Colors.black87, // Changed text color
-                                    ),
-                                  ),
-                                  subtitle: Text(
-                                    'Course: ${section['courseId'] ?? 'N/A'}' + (isCustom ? ' (Custom)' : ''),
-                                    style: TextStyle(color: Colors.grey[700]),
-                                  ),
-                                  trailing: isCustom && isOwnedByMe
-                                      ? PopupMenuButton<String>(
-                                          onSelected: (value) {
-                                            if (value == 'add_participants') {
-                                              _showAddParticipantsDialog(section['id'], section['sectionTitle']);
-                                            } else if (value == 'rename_section') {
-                                              _showRenameSectionDialog(section['id'], section['sectionTitle']);
-                                            } else if (value == 'delete_section') {
-                                              _deleteCustomSection(section['id'], section['sectionTitle']);
-                                            }
-                                          },
-                                          itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                                            const PopupMenuItem<String>(
-                                              value: 'add_participants',
-                                              child: ListTile(
-                                                leading: Icon(Icons.group_add),
-                                                title: Text('Add Participants'),
-                                              ),
-                                            ),
-                                            const PopupMenuItem<String>(
-                                              value: 'rename_section',
-                                              child: ListTile(
-                                                leading: Icon(Icons.edit),
-                                                title: Text('Rename Section'),
-                                              ),
-                                            ),
-                                            const PopupMenuItem<String>(
-                                              value: 'delete_section',
-                                              child: ListTile(
-                                                leading: Icon(Icons.delete_forever, color: Colors.red),
-                                                title: Text('Delete Section'),
-                                              ),
-                                            ),
-                                          ],
-                                          icon: const Icon(Icons.settings, color: Colors.grey), // Changed icon to settings gear
-                                        )
-                                      : const Icon(Icons.arrow_forward_ios, color: Colors.grey),
-                                  onTap: () {
-                                    Navigator.pushNamed(
-                                      context,
-                                      AppRoutes.sessionPage,
-                                      arguments: {
-                                        'courseId': section['courseId'] ?? 'N/A',
-                                        'documentId': section['id'],
-                                      },
-                                    ).then((_) => _loadAllSections());
-                                  },
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _errorMessage.isNotEmpty
+                      ? Center(child: Text(_errorMessage))
+                      : _allSections.isEmpty
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(16.0),
+                                child: Text(
+                                  'No sections found. Create your first custom section above!',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: 18, color: Colors.grey),
                                 ),
-                              );
-                            },
-                          ),
-          ),
-        ],
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.all(16.0),
+                              itemCount: _allSections.length,
+                              itemBuilder: (context, index) {
+                                final section = _allSections[index];
+                                final bool isCustom = section['sectionType'] == 'custom';
+                                final bool isOwnedByMe = _lecturerUid == section['lecturerEmail'];
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 12.0),
+                                  elevation: 2,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                  color: isCustom ? Colors.white : Colors.white, // Custom sections will have their own color
+                                  child: ListTile(
+                                    leading: Icon(
+                                      isCustom ? Icons.folder_special : Icons.folder,
+                                      color: isCustom ? const Color(0xFFF4A460) : const Color(0xFF8B0000), // Changed folder colors
+                                    ),
+                                    title: Text(
+                                      section['sectionTitle'] ?? 'Unnamed Section',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: isCustom ? const Color(0xFFF4A460) : Colors.black87, // Changed text color
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      'Course: ${section['courseId'] ?? 'N/A'}' + (isCustom ? ' (Custom)' : ''),
+                                      style: TextStyle(color: Colors.grey[700]),
+                                    ),
+                                    trailing: isCustom && isOwnedByMe
+                                        ? PopupMenuButton<String>(
+                                            onSelected: (value) {
+                                              if (value == 'add_participants') {
+                                                _showAddParticipantsDialog(section['id'], section['sectionTitle']);
+                                              } else if (value == 'rename_section') {
+                                                _showRenameSectionDialog(section['id'], section['sectionTitle']);
+                                              } else if (value == 'delete_section') {
+                                                _deleteCustomSection(section['id'], section['sectionTitle']);
+                                              }
+                                            },
+                                            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                                              const PopupMenuItem<String>(
+                                                value: 'add_participants',
+                                                child: ListTile(
+                                                  leading: Icon(Icons.group_add),
+                                                  title: Text('Add Participants'),
+                                                ),
+                                              ),
+                                              const PopupMenuItem<String>(
+                                                value: 'rename_section',
+                                                child: ListTile(
+                                                  leading: Icon(Icons.edit),
+                                                  title: Text('Rename Section'),
+                                                ),
+                                              ),
+                                              const PopupMenuItem<String>(
+                                                value: 'delete_section',
+                                                child: ListTile(
+                                                  leading: Icon(Icons.delete_forever, color: Colors.red),
+                                                  title: Text('Delete Section'),
+                                                ),
+                                              ),
+                                            ],
+                                            icon: const Icon(Icons.settings, color: Colors.grey), // Changed icon to settings gear
+                                          )
+                                        : const Icon(Icons.arrow_forward_ios, color: Colors.grey),
+                                    onTap: () {
+                                      Navigator.pushNamed(
+                                        context,
+                                        AppRoutes.sessionPage,
+                                        arguments: {
+                                          'courseId': section['courseId'] ?? 'N/A',
+                                          'documentId': section['id'],
+                                        },
+                                      ).then((_) => _loadAllSections());
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+            ),
+          ],
+        ),
       ),
     );
   }

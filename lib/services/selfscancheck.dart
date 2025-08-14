@@ -178,7 +178,7 @@ class SelfScanCheckService {
             .collection('attendance_records') // Corrected collection name
             .where('sessionId', isEqualTo: sessionId)
             .where('studentId', isEqualTo: studentDocId) // This is now the document ID
-            .where('scanType', isEqualTo: AttendanceScanType.entry.name)
+            .where('status', isEqualTo: 'entry_scanned')
             .get();
             
         if (entryQuery.docs.isEmpty) {

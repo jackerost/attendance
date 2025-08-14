@@ -60,6 +60,7 @@ class AttendanceService {
           'status': 'entry_scanned',
           'attendanceType': attendanceType, // NEW FIELD
           'specialReason': specialReason,   // NEW FIELD (will be null for regular attendance)
+          'scanType': scanType.name,
         });
         return 'Entry attendance marked successfully';
       }
@@ -77,6 +78,7 @@ class AttendanceService {
         await _firestore.collection(FirestorePaths.attendanceRecords).doc(existingEntry.id).update({
           'exitTimestamp': Timestamp.now(),
           'status': AttendanceStatus.present,
+          'scanType': scanType.name,
         });
         return 'Exit attendance marked successfully';
       }
@@ -84,6 +86,73 @@ class AttendanceService {
     } catch (e, stackTrace) {
       ErrorHandler.logError('Failed to mark attendance', e, stackTrace);
       return 'Failed to mark attendance: ${e.toString()}';
+    }
+  }
+
+  /// Marks attendance specifically for the student self-scan feature.
+  /// This uses the student's document ID for verification and record creation.
+  Future<String> markSelfScanAttendance({
+    required String sessionId,
+    required String studentDocId, // Uses Document ID
+    required String courseId,
+    required String sectionId,
+    required AttendanceScanType scanType,
+  }) async {
+    try {
+      // Session Status Check (can be reused)
+      final sessionStatus = await _checkSessionStatus(sessionId, courseId, sectionId);
+      if (!sessionStatus.isActive) return 'Session is not active: ${sessionStatus.message}';
+
+      // Enrollment Check using Document ID
+      final isEnrolled = await _isStudentEnrolledInSectionById(studentDocId, sectionId);
+      if (!isEnrolled) return 'Student not enrolled in this section';
+
+      // Handle entry scan
+      if (scanType == AttendanceScanType.entry) {
+        final existingEntry = await getExistingAttendanceRecords(sessionId, studentDocId);
+        if (existingEntry != null) {
+          if (existingEntry['exitTimestamp'] != null) {
+            return 'Attendance already completed for this session';
+          }
+          return 'Already entered for this session. Waiting for exit scan.';
+        }
+
+        await _firestore.collection(FirestorePaths.attendanceRecords).add({
+          'sessionId': sessionId,
+          'studentId': studentDocId, // Storing Document ID
+          'courseId': courseId,
+          'sectionId': sectionId,
+          'entryTimestamp': Timestamp.now(),
+          'exitTimestamp': null,
+          'status': 'entry_scanned',
+          'attendanceType': 'regular',
+          'specialReason': null,
+          'scanType': scanType.name,
+        });
+        return 'Entry attendance marked successfully';
+      }
+      // Handle exit scan
+      else if (scanType == AttendanceScanType.exit) {
+        final existingEntry = await getExistingAttendanceRecords(sessionId, studentDocId);
+        if (existingEntry == null) {
+          return 'No entry record found for this session. Please scan for entry first.';
+        }
+        if (existingEntry['exitTimestamp'] != null) {
+          return 'Exit attendance already marked for this session.';
+        }
+
+        // Update the existing record with exit timestamp and final status
+        await _firestore.collection(FirestorePaths.attendanceRecords).doc(existingEntry.id).update({
+          'exitTimestamp': Timestamp.now(),
+          'status': AttendanceStatus.present,
+          'scanType': scanType.name,
+        });
+        return 'Exit attendance marked successfully';
+      }
+      return 'Invalid scan type';
+    } catch (e, stackTrace) {
+      ErrorHandler.logError('Failed to mark self-scan attendance', e, stackTrace);
+      return 'Failed to mark self-scan attendance: ${e.toString()}';
     }
   }
 
@@ -95,23 +164,6 @@ class AttendanceService {
         .limit(1)
         .get();
     return querySnapshot.docs.isNotEmpty ? querySnapshot.docs.first : null;
-  }
-  
-  // This helper is not directly used in the new markAttendance flow,
-  // but keeping it as it was in your original code.
-  Future<bool> _checkForDuplicateAttendance(String sessionId, String studentId) async {
-    try {
-      final snapshot = await _firestore
-          .collection(FirestorePaths.attendanceRecords)
-          .where('sessionId', isEqualTo: sessionId)
-          .where('studentId', isEqualTo: studentId)
-          .where('exitTimestamp', isNull: false) // Check for completed attendance
-          .get();
-      return snapshot.docs.isNotEmpty;
-    } catch (e, stackTrace) {
-      ErrorHandler.logError('Duplicate check failed', e, stackTrace);
-      throw Exception('Duplicate check failed: ${e.toString()}');
-    }
   }
 
   Future<bool> _isStudentEnrolledInSection(String studentId, String sectionId) async {
@@ -134,6 +186,28 @@ class AttendanceService {
     ErrorHandler.logError('Section enrollment check failed', e);
     return false;
   }
+  }
+
+  /// Checks enrollment using the student's document ID.
+  Future<bool> _isStudentEnrolledInSectionById(String studentDocId, String sectionId) async {
+    try {
+      final studentDoc = await _firestore
+        .collection(FirestorePaths.students)
+        .doc(studentDocId)
+        .get();
+
+    if (!studentDoc.exists) {
+      logger.w('No student found with document ID: $studentDocId');
+      return false;
+    }
+
+    final studentData = studentDoc.data()!;
+    final enrolledSections = List<String>.from(studentData['enrolledSections'] ?? []);
+    return enrolledSections.contains(sectionId);
+    } catch (e) {
+      ErrorHandler.logError('Section enrollment check by ID failed', e);
+      return false;
+    }
   }
 
   Future<List<DocumentSnapshot>> getSessionAttendance(String sessionId) async {

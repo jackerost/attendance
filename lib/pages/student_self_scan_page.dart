@@ -321,31 +321,41 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
         return;
       }
       
-      // All verifications passed - mark attendance using AttendanceService with cached data
-      await _attendanceService.markAttendance(
+      // All verifications passed - mark attendance using the new self-scan function
+      final resultMessage = await _attendanceService.markSelfScanAttendance(
         sessionId: cachedSessionId,
-        studentId: verifiedStudent.id,
+        studentDocId: verifiedStudent.id, // Pass the document ID
         courseId: cachedSessionData['courseId'] ?? '',
         sectionId: cachedSessionData['sectionId'] ?? '',
         scanType: attendanceScanType,
       );
-      
-      // Attendance marked successfully
-      setState(() {
-        _scanningNFC = false;
-        _showConfirmation = true;
-        _attendanceRecord = {
-          'student': verifiedStudent.toMap(),
-          'sessionData': cachedSessionData,
-          'attendanceType': cachedMode,
-          'timestamp': Timestamp.now(),
-        };
-        
-        // Also update the current session data with our cached data
-        _sessionData = cachedSessionData;
-        _detectedMode = cachedMode;
-        _detectedSessionId = cachedSessionId;
-      });
+
+      // Check the result message for success or failure
+      if (resultMessage.contains('successfully')) {
+        // Attendance marked successfully
+        setState(() {
+          _scanningNFC = false;
+          _showConfirmation = true;
+          _attendanceRecord = {
+            'student': verifiedStudent.toMap(),
+            'sessionData': cachedSessionData,
+            'attendanceType': cachedMode,
+            'timestamp': Timestamp.now(),
+          };
+          
+          // Also update the current session data with our cached data
+          _sessionData = cachedSessionData;
+          _detectedMode = cachedMode;
+          _detectedSessionId = cachedSessionId;
+        });
+      } else {
+        // Handle failure from the attendance service
+        setState(() {
+          _scanningNFC = false;
+          _errorMessage = resultMessage;
+        });
+        _showSnackBar(resultMessage);
+      }
     } catch (e) {
       setState(() {
         _scanningNFC = false;
