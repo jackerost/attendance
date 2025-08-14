@@ -255,7 +255,27 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
       }
       
       // Extract the verified student from the result data
-      final verifiedStudent = verificationResult.data as Student;
+      final verifiedStudent = verificationResult.data as Student?;
+      
+      // Make sure we have a valid verified student
+      if (verifiedStudent == null) {
+        setState(() {
+          _scanningNFC = false;
+          _errorMessage = 'Unable to verify student data';
+        });
+        _showSnackBar('Unable to verify student data. Please try again.');
+        return;
+      }
+      
+      // Re-check session data as it may have changed during async operations
+      if (_sessionData == null || _detectedSessionId == null || _detectedMode == null) {
+        setState(() {
+          _scanningNFC = false;
+          _errorMessage = 'Session connection lost during scan';
+        });
+        _showSnackBar('Session connection lost. Please try again when in range.');
+        return;
+      }
       
       // Verify student enrollment in section
       final enrollmentResult = await _selfScanCheckService.verifyStudentEnrollment(

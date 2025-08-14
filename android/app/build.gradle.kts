@@ -10,7 +10,7 @@ plugins {
 
 android {
     namespace = "com.example.attendance"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 35 //flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -27,12 +27,12 @@ android {
         applicationId = "com.example.attendance"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        minSdk = 26 //flutter.minSdkVersion
+        targetSdk = 35 //flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        minSdkVersion(26)
-        targetSdkVersion(34)
+        //minSdkVersion(26)
+        //targetSdkVersion(35)
         
         externalNativeBuild {
             cmake {

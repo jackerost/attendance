@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:dchs_flutter_beacon/dchs_flutter_beacon.dart' hide BeaconBroadcast;
+import 'package:dchs_flutter_beacon/dchs_flutter_beacon.dart' as flutter_beacon hide BeaconBroadcast;
 import 'package:beacon_broadcast/beacon_broadcast.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -30,7 +30,7 @@ class BLEService {
   String? _currentSessionId;
   
   // Student scanning state
-  StreamSubscription<RangingResult>? _rangingSubscription;
+  StreamSubscription<flutter_beacon.RangingResult>? _rangingSubscription;
   Timer? _detectionTimer;
   bool _isBeaconDetected = false;
   bool _hasMetDetectionThreshold = false;
@@ -196,7 +196,7 @@ class BLEService {
   }) async {
     try {
       // Initialize beacon scanning
-      await flutterBeacon.initializeScanning;
+      await flutter_beacon.flutterBeacon.initializeScanning;
       
       // Check for Bluetooth scanning permissions
       if (await Permission.bluetooth.isDenied ||
@@ -260,7 +260,7 @@ class BLEService {
       _firstDetectionTime = null;
       
       // Create a region for our app UUID - we only need one region since we use the same UUID
-      final regions = [Region(
+      final regions = [flutter_beacon.Region(
         identifier: 'attendance.student.scanner',
         proximityUUID: _APP_BEACON_UUID,
       )];
@@ -271,8 +271,8 @@ class BLEService {
       Map<String, dynamic>? detectedSessionData;
 
       // Start ranging
-      _rangingSubscription = flutterBeacon.ranging(regions).listen(
-        (RangingResult result) {
+      _rangingSubscription = flutter_beacon.flutterBeacon.ranging(regions).listen(
+        (flutter_beacon.RangingResult result) {
           // Check if any beacons detected
           final beacons = result.beacons;
           final wasDetected = _isBeaconDetected;
