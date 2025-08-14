@@ -37,6 +37,11 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
   String? _detectedMode; // 'entry' or 'exit'
   Map<String, dynamic>? _sessionData;
   
+  // Signal stability enhancement (internal implementation)
+  Timer? _beaconGraceTimer;
+  static const Duration _beaconGracePeriod = Duration(seconds: 8);
+  bool _inGracePeriod = false;
+  
   // Student data
   Student? _currentStudent;
   bool _isLoading = true;
@@ -58,6 +63,7 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
     WidgetsBinding.instance.removeObserver(this);
     // Stop BLE scanning when leaving the page
     _stopScanning();
+    _beaconGraceTimer?.cancel();
     super.dispose();
   }
   
@@ -158,27 +164,40 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
     // Start scanning for BLE beacons
     await _bleService.startScanning(
       onBeaconDetected: (String sessionId, String mode, Map<String, dynamic> sessionData) {
+        _beaconGraceTimer?.cancel();
         setState(() {
           _detectionStatus = BLEDetectionStatus.detected;
           _detectedSessionId = sessionId;
           _detectedMode = mode;
           _sessionData = sessionData;
+          _inGracePeriod = false;
         });
       },
       onBeaconThresholdMet: (String sessionId, String mode, Map<String, dynamic> sessionData) {
+        _beaconGraceTimer?.cancel();
         setState(() {
           _detectionStatus = BLEDetectionStatus.thresholdMet;
           _detectedSessionId = sessionId;
           _detectedMode = mode;
           _sessionData = sessionData;
+          _inGracePeriod = false;
         });
       },
       onBeaconLost: () {
+        _beaconGraceTimer?.cancel();
         setState(() {
-          _detectionStatus = BLEDetectionStatus.notDetected;
-          _detectedSessionId = null;
-          _detectedMode = null;
-          _sessionData = null;
+          _inGracePeriod = true;
+        });
+        _beaconGraceTimer = Timer(_beaconGracePeriod, () {
+          if (mounted) {
+            setState(() {
+              _detectionStatus = BLEDetectionStatus.notDetected;
+              _detectedSessionId = null;
+              _detectedMode = null;
+              _sessionData = null;
+              _inGracePeriod = false;
+            });
+          }
         });
       },
     );
@@ -188,6 +207,7 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
     if (!_isBLEScanning) return;
     
     _bleService.stopScanning();
+    _beaconGraceTimer?.cancel();
     
     setState(() {
       _isBLEScanning = false;
@@ -195,17 +215,22 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
       _detectedSessionId = null;
       _detectedMode = null;
       _sessionData = null;
+      _inGracePeriod = false;
     });
   }
   
   Future<void> _scanNFCAndMarkAttendance() async {
-    if (_detectionStatus != BLEDetectionStatus.thresholdMet || 
-        _detectedSessionId == null || 
-        _detectedMode == null ||
-        _currentStudent == null) {
+    if (_detectedSessionId == null || _detectedMode == null || _currentStudent == null ||
+        (_detectionStatus != BLEDetectionStatus.thresholdMet && !_inGracePeriod)) {
       _showSnackBar('Session beacon not detected. Please try again when in range.');
       return;
     }
+    
+    // Cache session data at the beginning to use throughout the scanning process
+    // This prevents "connection lost" errors if signal drops during NFC scan
+    final String cachedSessionId = _detectedSessionId!;
+    final String cachedMode = _detectedMode!;
+    final Map<String, dynamic> cachedSessionData = Map<String, dynamic>.from(_sessionData ?? {});
     
     setState(() {
       _scanningNFC = true;
@@ -214,8 +239,8 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
     });
     
     try {
-      // Determine attendance scan type based on detected mode
-      final attendanceScanType = _detectedMode!.toLowerCase() == 'entry'
+      // Determine attendance scan type based on cached mode
+      final attendanceScanType = cachedMode.toLowerCase() == 'entry'
           ? AttendanceScanType.entry
           : AttendanceScanType.exit;
       
@@ -267,20 +292,13 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
         return;
       }
       
-      // Re-check session data as it may have changed during async operations
-      if (_sessionData == null || _detectedSessionId == null || _detectedMode == null) {
-        setState(() {
-          _scanningNFC = false;
-          _errorMessage = 'Session connection lost during scan';
-        });
-        _showSnackBar('Session connection lost. Please try again when in range.');
-        return;
-      }
+      // Use cached session data instead of checking for live data
+      // This prevents session connection errors during the scan process
       
       // Verify student enrollment in section
       final enrollmentResult = await _selfScanCheckService.verifyStudentEnrollment(
         verifiedStudent.studentId, 
-        _sessionData!['sectionId'] ?? ''
+        cachedSessionData['sectionId'] ?? ''
       );
       
       if (!enrollmentResult.success) {
@@ -292,9 +310,9 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
         return;
       }
       
-      // Check if the user can mark attendance for this session
+      // Check if the user can mark attendance for this session - using cached session ID
       final canMarkResult = await _selfScanCheckService.canMarkAttendance(
-        _detectedSessionId!,
+        cachedSessionId,
         verifiedStudent.studentId,
         attendanceScanType
       );
@@ -308,12 +326,12 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
         return;
       }
       
-      // All verifications passed - mark attendance using AttendanceService
+      // All verifications passed - mark attendance using AttendanceService with cached data
       await _attendanceService.markAttendance(
-        sessionId: _detectedSessionId!,
+        sessionId: cachedSessionId,
         studentId: verifiedStudent.studentId,
-        courseId: _sessionData!['courseId'] ?? '',
-        sectionId: _sessionData!['sectionId'] ?? '',
+        courseId: cachedSessionData['courseId'] ?? '',
+        sectionId: cachedSessionData['sectionId'] ?? '',
         scanType: attendanceScanType,
       );
       
@@ -323,10 +341,15 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
         _showConfirmation = true;
         _attendanceRecord = {
           'student': verifiedStudent.toMap(),
-          'sessionData': _sessionData,
-          'attendanceType': _detectedMode,
+          'sessionData': cachedSessionData,
+          'attendanceType': cachedMode,
           'timestamp': Timestamp.now(),
         };
+        
+        // Also update the current session data with our cached data
+        _sessionData = cachedSessionData;
+        _detectedMode = cachedMode;
+        _detectedSessionId = cachedSessionId;
       });
     } catch (e) {
       setState(() {
@@ -493,7 +516,7 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
             
             // NFC Scan button
             ElevatedButton(
-              onPressed: _detectionStatus == BLEDetectionStatus.thresholdMet && !_scanningNFC
+              onPressed: (_detectionStatus == BLEDetectionStatus.thresholdMet || _inGracePeriod) && !_scanningNFC
                   ? _scanNFCAndMarkAttendance
                   : null,
               style: ElevatedButton.styleFrom(

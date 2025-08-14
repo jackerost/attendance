@@ -134,6 +134,9 @@ class BLEService {
     }
   }
 
+  // Timer for delaying Firestore updates when stopping broadcast
+  Timer? _broadcastGracePeriodTimer;
+  
   /// Stop broadcasting the BLE beacon
   Future<bool> stopBroadcasting() async {
     if (!_isTransmitting || _currentSessionId == null) {
@@ -144,19 +147,33 @@ class BLEService {
       // Stop broadcasting
       await _beaconBroadcast.stop();
       
-      // Remove beacon ID from Firestore
-      if (_currentSessionId != null) {
-        await _firestore.collection('sessions').doc(_currentSessionId).update({
-          'beaconId': FieldValue.delete(),
-          'beaconMode': FieldValue.delete(),
-          'beaconUpdatedAt': FieldValue.serverTimestamp(),
-        });
-      }
+      // Keep session ID before setting it to null
+      final sessionId = _currentSessionId;
       
       _isTransmitting = false;
       _currentSessionId = null;
       
-      _logger.i('Stopped broadcasting beacon');
+      // Cancel any existing grace period timer
+      _broadcastGracePeriodTimer?.cancel();
+      
+      // Add a grace period before removing beacon fields from Firestore
+      _broadcastGracePeriodTimer = Timer(Duration(seconds: _scanGracePeriodInSeconds.toInt()), () async {
+        try {
+          // Remove beacon ID from Firestore after grace period
+          if (sessionId != null) {
+            await _firestore.collection('sessions').doc(sessionId).update({
+              'beaconId': FieldValue.delete(),
+              'beaconMode': FieldValue.delete(),
+              'beaconUpdatedAt': FieldValue.serverTimestamp(),
+            });
+            _logger.i('Removed beacon fields from Firestore after grace period');
+          }
+        } catch (e) {
+          _logger.e('Error updating Firestore after grace period: $e');
+        }
+      });
+      
+      _logger.i('Stopped broadcasting beacon (Firestore update delayed)');
       return true;
     } catch (e) {
       _logger.e('Error stopping beacon broadcast: $e');
@@ -393,6 +410,8 @@ class BLEService {
   void dispose() {
     stopBroadcasting();
     stopScanning();
+    _broadcastGracePeriodTimer?.cancel();
+    _detectionTimer?.cancel();
     _beaconDetectedController.close();
   }
 }
