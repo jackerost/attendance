@@ -32,13 +32,16 @@ class BLEService {
   // Student scanning state
   StreamSubscription<flutter_beacon.RangingResult>? _rangingSubscription;
   Timer? _detectionTimer;
+  Timer? _proximityLostTimer;
   bool _isBeaconDetected = false;
   bool _hasMetDetectionThreshold = false;
   DateTime? _firstDetectionTime;
+  DateTime? _lastDetectionTime;
   
   // Constants
-  final double _detectionThresholdInSeconds = 1.5;
+  final double _detectionThresholdInSeconds = 1.0;  // Changed from 1.5 to 1.0 second
   final double _scanGracePeriodInSeconds = 10.0;
+  final double _proximityWindowInSeconds = 10.0; // Proximity tracking window
   
   /// Start broadcasting a BLE beacon for a specific session and mode
   Future<bool> startBroadcasting(String sessionId, String mode) async {
@@ -275,6 +278,11 @@ class BLEService {
       _isBeaconDetected = false;
       _hasMetDetectionThreshold = false;
       _firstDetectionTime = null;
+      _lastDetectionTime = null;
+      
+      // Cancel any existing timers
+      _proximityLostTimer?.cancel();
+      _proximityLostTimer = null;
       
       // Create a region for our app UUID - we only need one region since we use the same UUID
       final regions = [flutter_beacon.Region(
@@ -294,6 +302,15 @@ class BLEService {
           final beacons = result.beacons;
           final wasDetected = _isBeaconDetected;
           _isBeaconDetected = beacons.isNotEmpty;
+          
+          // Record the current time whenever we detect beacons
+          if (_isBeaconDetected) {
+            _lastDetectionTime = DateTime.now();
+            
+            // Cancel any pending proximity lost timer as we're getting a signal
+            _proximityLostTimer?.cancel();
+            _proximityLostTimer = null;
+          }
           
           // Handle detection logic
           if (_isBeaconDetected) {
@@ -328,28 +345,25 @@ class BLEService {
                   _hasMetDetectionThreshold = true;
                   _logger.i('Beacon detection threshold met: $detectionDuration seconds');
                   
-                  // Start grace period timer for NFC scanning
-                  _startGracePeriod(detectedSessionId!, detectedMode!, detectedSessionData!, onBeaconLost);
-                  
-                  // Notify listeners that beacon threshold is met
+                  // Notify that threshold is met
                   onBeaconThresholdMet(detectedSessionId!, detectedMode!, detectedSessionData!);
                 }
               }
             }
           } else {
-            // Reset detection if beacon lost before threshold
-            if (_firstDetectionTime != null && !_hasMetDetectionThreshold) {
-              _firstDetectionTime = null;
-            }
-            
-            // Reset detected session
-            detectedSessionId = null;
-            detectedMode = null;
-            detectedSessionData = null;
-            
-            // Notify listeners that beacon is not detected
-            if (wasDetected) {
-              onBeaconLost();
+            // If beacon is not detected, start a proximity lost timer
+            // only if we previously had detected a beacon AND met the threshold
+            if (wasDetected && _hasMetDetectionThreshold && _proximityLostTimer == null) {
+              _logger.i('📡 Signal temporarily lost, starting proximity window timer (${_proximityWindowInSeconds}s)');
+              _proximityLostTimer = Timer(Duration(seconds: _proximityWindowInSeconds.toInt()), () {
+                _logger.i('📡 Proximity window expired - no signal detected within ${_proximityWindowInSeconds} seconds');
+                // Only reset if we haven't detected a new signal during this time
+                if (!_isBeaconDetected) {
+                  _hasMetDetectionThreshold = false;
+                  _firstDetectionTime = null;
+                  onBeaconLost();
+                }
+              });
             }
           }
         },
@@ -367,21 +381,7 @@ class BLEService {
     }
   }
 
-  /// Start the grace period timer for NFC scanning
-  void _startGracePeriod(String sessionId, String mode, Map<String, dynamic> sessionData, Function onBeaconLost) {
-    // Cancel existing timer if any
-    _detectionTimer?.cancel();
-    
-    // Start a new timer
-    _detectionTimer = Timer(Duration(seconds: _scanGracePeriodInSeconds.toInt()), () {
-      // If grace period expires, reset detection state
-      _hasMetDetectionThreshold = false;
-      _firstDetectionTime = null;
-      _beaconDetectedController.add(false);
-      onBeaconLost();
-      _logger.i('Scan grace period expired');
-    });
-  }
+  // Removed unused _startGracePeriod method
 
   /// Stop scanning for BLE beacons
   Future<void> stopScanning() async {
@@ -389,14 +389,18 @@ class BLEService {
     await _rangingSubscription?.cancel();
     _rangingSubscription = null;
     
-    // Cancel timer
+    // Cancel all timers
     _detectionTimer?.cancel();
     _detectionTimer = null;
+    
+    _proximityLostTimer?.cancel();
+    _proximityLostTimer = null;
     
     // Reset state
     _isBeaconDetected = false;
     _hasMetDetectionThreshold = false;
     _firstDetectionTime = null;
+    _lastDetectionTime = null;
     
     _logger.i('Stopped scanning for beacons');
   }

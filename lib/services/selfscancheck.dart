@@ -119,31 +119,31 @@ class SelfScanCheckService {
   /// Verifies if student is enrolled in the session's section
   /// 
   /// This ensures students can only self-scan for sections they're enrolled in
-  Future<SecurityCheckResult> verifyStudentEnrollment(String studentId, String sectionId) async {
+  Future<SecurityCheckResult> verifyStudentEnrollment(String studentDocId, String sectionId) async {
     try {
       if (sectionId.isEmpty) {
         return SecurityCheckResult.failure(message: 'Invalid section ID');
       }
       
-      final studentQuery = await _firestore
-          .collection('students')
-          .where('studentId', isEqualTo: studentId)
-          .limit(1)
-          .get();
+      // Fetch the student document directly by its ID
+      final studentDoc = await _firestore.collection('students').doc(studentDocId).get();
 
-      if (studentQuery.docs.isEmpty) {
+      if (!studentDoc.exists) {
+        _logger.w('Student profile not found for document ID: $studentDocId');
         return SecurityCheckResult.failure(message: 'Student profile not found');
       }
 
-      final studentData = studentQuery.docs.first.data();
+      final studentData = studentDoc.data()!;
       final enrolledSections = List<String>.from(studentData['enrolledSections'] ?? []);
 
       if (!enrolledSections.contains(sectionId)) {
+        _logger.w('Student $studentDocId is not enrolled in section $sectionId');
         return SecurityCheckResult.failure(
           message: 'You are not enrolled in this section'
         );
       }
       
+      _logger.i('Student enrollment verified for $studentDocId in section $sectionId');
       return SecurityCheckResult.success(message: 'Student enrollment verified');
     } catch (e) {
       _logger.e('Error verifying student enrollment: $e');
@@ -151,30 +151,16 @@ class SelfScanCheckService {
     }
   }
   
-  /// Checks if the user can mark attendance for this session
+  /// Only checks for duplicate attendance without verifying session state
   /// 
-  /// Verifies session exists, is active, and checks for duplicate attendance
-  Future<SecurityCheckResult> canMarkAttendance(String sessionId, String studentId, AttendanceScanType scanType) async {
+  /// This is useful during grace periods when session may temporarily appear inactive
+  Future<SecurityCheckResult> checkDuplicateAttendance(String sessionId, String studentDocId, AttendanceScanType scanType) async {
     try {
-      // First verify session exists and is active
-      final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
-      
-      if (!sessionDoc.exists) {
-        return SecurityCheckResult.failure(message: 'Session not found');
-      }
-      
-      final sessionData = sessionDoc.data()!;
-      final bool isActive = sessionData['isActive'] ?? false;
-      
-      if (!isActive) {
-        return SecurityCheckResult.failure(message: 'This session is not active');
-      }
-      
-      // Check for duplicate entry/exit
+      // Check for duplicate entry/exit in the correct collection
       final attendanceQuery = await _firestore
-          .collection('attendance')
+          .collection('attendance_records') // Corrected collection name
           .where('sessionId', isEqualTo: sessionId)
-          .where('studentId', isEqualTo: studentId)
+          .where('studentId', isEqualTo: studentDocId) // This is now the document ID
           .where('scanType', isEqualTo: scanType.name)
           .get();
           
@@ -189,15 +175,70 @@ class SelfScanCheckService {
       // Check entry before exit
       if (scanType == AttendanceScanType.exit) {
         final entryQuery = await _firestore
-            .collection('attendance')
+            .collection('attendance_records') // Corrected collection name
             .where('sessionId', isEqualTo: sessionId)
-            .where('studentId', isEqualTo: studentId)
+            .where('studentId', isEqualTo: studentDocId) // This is now the document ID
             .where('scanType', isEqualTo: AttendanceScanType.entry.name)
             .get();
             
         if (entryQuery.docs.isEmpty) {
           return SecurityCheckResult.failure(message: 'You must check in before checking out');
         }
+      }
+      
+      return SecurityCheckResult.success(message: 'No duplicate attendance found');
+    } catch (e) {
+      _logger.e('Error checking duplicate attendance: $e');
+      
+      // Special handling for permission-denied errors
+      if (e.toString().contains('permission-denied')) {
+        return SecurityCheckResult.failure(message: 'Permission denied. Please ensure you are logged in and have access to this session.');
+      }
+      
+      return SecurityCheckResult.failure(message: 'Error checking attendance: $e');
+    }
+  }
+
+  /// Checks if the user can mark attendance for this session
+  /// 
+  /// Verifies session exists, is active, and checks for duplicate attendance
+  Future<SecurityCheckResult> canMarkAttendance(String sessionId, String studentId, AttendanceScanType scanType) async {
+    try {
+      // First verify session exists and is active
+      final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
+      
+      if (!sessionDoc.exists) {
+        return SecurityCheckResult.failure(message: 'Session not found');
+      }
+      
+      final sessionData = sessionDoc.data()!;
+      
+      // Check if the session is active based on time rather than just the isActive flag
+      // This is more resilient during grace periods when the flag might be temporarily removed
+      final now = Timestamp.now();
+      final startTime = sessionData['startTime'] as Timestamp?;
+      final endTime = sessionData['endTime'] as Timestamp?;
+      
+      // Check time-based activity if timestamps are available
+      if (startTime != null && endTime != null) {
+        if (now.compareTo(startTime) < 0) {
+          return SecurityCheckResult.failure(message: 'This session has not started yet');
+        }
+        if (now.compareTo(endTime) > 0) {
+          return SecurityCheckResult.failure(message: 'This session has already ended');
+        }
+      } else {
+        // Fall back to isActive flag if timestamps are not available
+        final bool isActive = sessionData['isActive'] ?? false;
+        if (!isActive) {
+          return SecurityCheckResult.failure(message: 'This session is not active');
+        }
+      }
+      
+      // Reuse duplicate attendance check logic
+      final duplicateCheck = await checkDuplicateAttendance(sessionId, studentId, scanType);
+      if (!duplicateCheck.success) {
+        return duplicateCheck;
       }
       
       return SecurityCheckResult.success(

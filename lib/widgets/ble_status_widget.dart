@@ -15,31 +15,40 @@ class BLEStatusWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (isBeaconDetected && isThresholdMet) {
+      // When both flags are true but one is from grace period, it means we're in grace period
+      // This logic relies on the parent widget setting these flags correctly
+      final bool isGracePeriod = isThresholdMet && !isBeaconDetected;
+      
       // Beacon detected and threshold met - good state
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.green.shade50,
+          color: isGracePeriod ? Colors.amber.shade50 : Colors.green.shade50,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.green.shade300),
+          border: Border.all(color: isGracePeriod ? Colors.amber.shade300 : Colors.green.shade300),
         ),
         child: Row(
           children: [
-            Icon(Icons.bluetooth_connected, color: Colors.green.shade700),
+            Icon(
+              isGracePeriod ? Icons.timer : Icons.bluetooth_connected, 
+              color: isGracePeriod ? Colors.amber.shade700 : Colors.green.shade700
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'BLE Signal Detected',
+                  Text(
+                    isGracePeriod ? 'Grace Period Active' : 'BLE Signal Detected',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
-                      color: Colors.green,
+                      color: isGracePeriod ? Colors.amber.shade700 : Colors.green,
                     ),
                   ),
                   Text(
-                    'Ready to scan your NFC card',
+                    isGracePeriod 
+                      ? 'You can still scan within the grace period'
+                      : 'Ready to scan your NFC card',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey.shade800,

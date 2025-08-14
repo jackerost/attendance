@@ -37,10 +37,8 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
   String? _detectedMode; // 'entry' or 'exit'
   Map<String, dynamic>? _sessionData;
   
-  // Signal stability enhancement (internal implementation)
-  Timer? _beaconGraceTimer;
-  static const Duration _beaconGracePeriod = Duration(seconds: 8);
-  bool _inGracePeriod = false;
+  // Proximity detection state
+  bool _proximityDetected = false;
   
   // Student data
   Student? _currentStudent;
@@ -63,7 +61,6 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
     WidgetsBinding.instance.removeObserver(this);
     // Stop BLE scanning when leaving the page
     _stopScanning();
-    _beaconGraceTimer?.cancel();
     super.dispose();
   }
   
@@ -159,45 +156,38 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
       _detectedSessionId = null;
       _detectedMode = null;
       _sessionData = null;
+      _proximityDetected = false;
     });
     
     // Start scanning for BLE beacons
     await _bleService.startScanning(
       onBeaconDetected: (String sessionId, String mode, Map<String, dynamic> sessionData) {
-        _beaconGraceTimer?.cancel();
+        _logger.i('Beacon detected for session: $sessionId');
         setState(() {
           _detectionStatus = BLEDetectionStatus.detected;
           _detectedSessionId = sessionId;
           _detectedMode = mode;
           _sessionData = sessionData;
-          _inGracePeriod = false;
         });
       },
       onBeaconThresholdMet: (String sessionId, String mode, Map<String, dynamic> sessionData) {
-        _beaconGraceTimer?.cancel();
+        _logger.i('Beacon threshold met - proximity detected');
         setState(() {
           _detectionStatus = BLEDetectionStatus.thresholdMet;
           _detectedSessionId = sessionId;
           _detectedMode = mode;
           _sessionData = sessionData;
-          _inGracePeriod = false;
+          _proximityDetected = true;
         });
       },
       onBeaconLost: () {
-        _beaconGraceTimer?.cancel();
+        _logger.i('� Proximity lost completely - BLE service window expired');
         setState(() {
-          _inGracePeriod = true;
-        });
-        _beaconGraceTimer = Timer(_beaconGracePeriod, () {
-          if (mounted) {
-            setState(() {
-              _detectionStatus = BLEDetectionStatus.notDetected;
-              _detectedSessionId = null;
-              _detectedMode = null;
-              _sessionData = null;
-              _inGracePeriod = false;
-            });
-          }
+          _detectionStatus = BLEDetectionStatus.notDetected;
+          _proximityDetected = false;
+          _detectedSessionId = null;
+          _detectedMode = null;
+          _sessionData = null;
         });
       },
     );
@@ -207,7 +197,6 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
     if (!_isBLEScanning) return;
     
     _bleService.stopScanning();
-    _beaconGraceTimer?.cancel();
     
     setState(() {
       _isBLEScanning = false;
@@ -215,13 +204,13 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
       _detectedSessionId = null;
       _detectedMode = null;
       _sessionData = null;
-      _inGracePeriod = false;
+      _proximityDetected = false;
     });
   }
   
   Future<void> _scanNFCAndMarkAttendance() async {
     if (_detectedSessionId == null || _detectedMode == null || _currentStudent == null ||
-        (_detectionStatus != BLEDetectionStatus.thresholdMet && !_inGracePeriod)) {
+        !_proximityDetected) {
       _showSnackBar('Session beacon not detected. Please try again when in range.');
       return;
     }
@@ -297,7 +286,7 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
       
       // Verify student enrollment in section
       final enrollmentResult = await _selfScanCheckService.verifyStudentEnrollment(
-        verifiedStudent.studentId, 
+        verifiedStudent.id, 
         cachedSessionData['sectionId'] ?? ''
       );
       
@@ -311,25 +300,31 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
       }
       
       // Check if the user can mark attendance for this session - using cached session ID
-      final canMarkResult = await _selfScanCheckService.canMarkAttendance(
+      _logger.i('Checking if student can mark attendance for session: $cachedSessionId');
+      _logger.i('Session data: ${cachedSessionData.toString()}');
+      
+      // Always use the most permissive check when we're in proximity range
+      // Since we're using cached session data, we don't need to check session activity again
+      // We only need to check for duplicate attendance
+      final duplicateAttendanceCheck = await _selfScanCheckService.checkDuplicateAttendance(
         cachedSessionId,
-        verifiedStudent.studentId,
+        verifiedStudent.id,
         attendanceScanType
       );
       
-      if (!canMarkResult.success) {
+      if (!duplicateAttendanceCheck.success) {
         setState(() {
           _scanningNFC = false;
-          _errorMessage = canMarkResult.message;
+          _errorMessage = duplicateAttendanceCheck.message;
         });
-        _showSnackBar(canMarkResult.message);
+        _showSnackBar(duplicateAttendanceCheck.message);
         return;
       }
       
       // All verifications passed - mark attendance using AttendanceService with cached data
       await _attendanceService.markAttendance(
         sessionId: cachedSessionId,
-        studentId: verifiedStudent.studentId,
+        studentId: verifiedStudent.id,
         courseId: cachedSessionData['courseId'] ?? '',
         sectionId: cachedSessionData['sectionId'] ?? '',
         scanType: attendanceScanType,
@@ -506,17 +501,39 @@ class _StudentSelfScanPageState extends State<StudentSelfScanPage> with WidgetsB
             const SizedBox(height: 24),
             
             // BLE Status Widget
-            BLEStatusWidget(
-              isBeaconDetected: _detectionStatus != BLEDetectionStatus.notDetected,
-              isThresholdMet: _detectionStatus == BLEDetectionStatus.thresholdMet,
-              distance: null, // We don't have distance information
+            Column(
+              children: [
+                BLEStatusWidget(
+                  isBeaconDetected: _detectionStatus != BLEDetectionStatus.notDetected,
+                  isThresholdMet: _proximityDetected,
+                  distance: null, // We don't have distance information
+                ),
+                
+                // Proximity indicator if active but beacon is temporarily lost
+                if (_proximityDetected && _detectionStatus == BLEDetectionStatus.notDetected)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.shade100,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Text(
+                        'Signal temporarily lost - proximity maintained',
+                        style: TextStyle(fontSize: 12, color: Colors.amber, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             
             const SizedBox(height: 24),
             
             // NFC Scan button
             ElevatedButton(
-              onPressed: (_detectionStatus == BLEDetectionStatus.thresholdMet || _inGracePeriod) && !_scanningNFC
+              onPressed: _proximityDetected && !_scanningNFC
                   ? _scanNFCAndMarkAttendance
                   : null,
               style: ElevatedButton.styleFrom(
