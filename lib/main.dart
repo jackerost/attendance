@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 // Import pages
 import 'pages/login_page.dart';
+import 'pages/mock_page.dart';
 import 'pages/home_page.dart';
 import 'pages/nfc_scanner_page.dart';
 import 'pages/selection_page.dart';
@@ -18,7 +19,7 @@ import 'services/firebase_auth_service.dart';
 
 // Import utils
 import 'utils/constants.dart';
-import 'routes.dart';
+import 'routes.dart' as routes;
 
 void main() async {
   // Ensure Flutter is initialized
@@ -55,12 +56,13 @@ class MyApp extends StatelessWidget {
           // Add more theme customization as needed
         ),
         // Initial route when app starts
-        initialRoute: AppRoutes.login,
+        initialRoute: routes.AppRoutes.login,
         routes: {
           // Define routes for navigation
-          AppRoutes.login: (context) => const LoginPage(),
-          AppRoutes.home: (context) => const HomePage(),
-          AppRoutes.nfcScanner: (context) {
+          routes.AppRoutes.login: (context) => const LoginPage(),
+          routes.AppRoutes.dashboard: (context) => const MockPage(),
+          routes.AppRoutes.home: (context) => const HomePage(),
+          routes.AppRoutes.nfcScanner: (context) {
           final args = ModalRoute.of(context)?.settings.arguments;
           if (args is String) {
             return NFCScannerPage(sessionId: args);
@@ -73,12 +75,12 @@ class MyApp extends StatelessWidget {
             ),
           );
         },
-          AppRoutes.selector: (context) {
+          routes.AppRoutes.selector: (context) {
             final sessionId = ModalRoute.of(context)!.settings.arguments as String;
             return SelectionPage(sessionId: sessionId);
             },
-          AppRoutes.courseList: (context) => const CourseListPage(),
-          AppRoutes.sessionPage: (context) {
+          routes.AppRoutes.courseList: (context) => const CourseListPage(),
+          routes.AppRoutes.sessionPage: (context) {
             final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
             final courseId = args['courseId'] as String;
             final documentId = args['documentId'] as String;
@@ -89,11 +91,11 @@ class MyApp extends StatelessWidget {
             );
           },
           // Self-scan routes
-          AppRoutes.bulkSelfScan: (context) {
+          routes.AppRoutes.bulkSelfScan: (context) {
             final sessionId = ModalRoute.of(context)!.settings.arguments as String;
             return BulkSelfScanPage(sessionId: sessionId);
           },
-          AppRoutes.studentSelfScan: (context) => const StudentSelfScanPage(),
+          routes.AppRoutes.studentSelfScan: (context) => const StudentSelfScanPage(),
         },
         // If route isn't found, redirect to login
         onUnknownRoute: (settings) {
@@ -122,7 +124,7 @@ class AuthGate extends StatelessWidget {
         // If connection is active and user is logged in
         if (snapshot.connectionState == ConnectionState.active) {
           final user = snapshot.data;
-          return user != null ? const HomePage() : const LoginPage();
+          return user != null ? const MockPage() : const LoginPage();
         }
         
         // Show loading spinner while connecting

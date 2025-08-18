@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
-import '../main.dart'; // Assuming AppRoutes is defined here
+import '../routes.dart'; // Import routes file
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -42,7 +42,7 @@ class _LoginPageState extends State<LoginPage> {
       // Check if login was successful
       if (userCredential.user != null) {
         // Navigate to dashboard
-        Navigator.pushReplacementNamed(context, AppRoutes.home);
+        Navigator.pushReplacementNamed(context, AppRoutes.dashboard);
       }
     } on FirebaseAuthException catch (e) {
       String message;
