@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dchs_flutter_beacon/dchs_flutter_beacon.dart' as flutter_beacon hide BeaconBroadcast;
 import 'package:beacon_broadcast/beacon_broadcast.dart';
@@ -36,12 +37,11 @@ class BLEService {
   bool _isBeaconDetected = false;
   bool _hasMetDetectionThreshold = false;
   DateTime? _firstDetectionTime;
-  DateTime? _lastDetectionTime;
   
-  // Constants
-  final double _detectionThresholdInSeconds = 1.0;  // Changed from 1.5 to 1.0 second
+  // Constants - Optimized for lowest latency
+  final double _detectionThresholdInSeconds = 0.1;  // Reduced to 100ms for faster detection
   final double _scanGracePeriodInSeconds = 10.0;
-  final double _proximityWindowInSeconds = 10.0; // Proximity tracking window
+  final double _proximityWindowInSeconds = 5.0; // Reduced window for faster lost detection
   
   /// Start broadcasting a BLE beacon for a specific session and mode
   Future<bool> startBroadcasting(String sessionId, String mode) async {
@@ -114,7 +114,7 @@ class BLEService {
         'beaconUpdatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Configure beacon broadcast
+      // Configure beacon broadcast with optimized settings for lowest latency
       await _beaconBroadcast.setUUID(beaconId);
       await _beaconBroadcast.setMajorId(lecturerMajor);
       await _beaconBroadcast.setMinorId(sessionMinor);
@@ -122,6 +122,13 @@ class BLEService {
       await _beaconBroadcast.setTransmissionPower(-59); // Default power
       await _beaconBroadcast.setManufacturerId(0x004C);
       await _beaconBroadcast.setLayout('m:2-3=0215,i:4-19,i:20-21,i:22-23,p:24-24');
+      
+      // Platform-specific optimizations for lowest latency
+      if (Platform.isAndroid) {
+        // Use low latency mode on Android for fastest advertising
+        await _beaconBroadcast.setAdvertiseMode(AdvertiseMode.lowLatency);
+      }
+      // iOS automatically uses optimal settings through CoreBluetooth/CoreLocation
 
       // Start broadcasting
       await _beaconBroadcast.start();
@@ -215,7 +222,7 @@ class BLEService {
     required Function() onBeaconLost,
   }) async {
     try {
-      // Initialize beacon scanning
+      // Initialize beacon scanning with optimized settings
       await flutter_beacon.flutterBeacon.initializeScanning;
       
       // Check for Bluetooth scanning permissions
@@ -274,13 +281,10 @@ class BLEService {
         return false;
       }
 
-      // Reset detection state
-      _isBeaconDetected = false;
-      _hasMetDetectionThreshold = false;
-      _firstDetectionTime = null;
-      _lastDetectionTime = null;
-      
-      // Cancel any existing timers
+    // Reset detection state
+    _isBeaconDetected = false;
+    _hasMetDetectionThreshold = false;
+    _firstDetectionTime = null;      // Cancel any existing timers
       _proximityLostTimer?.cancel();
       _proximityLostTimer = null;
       
@@ -290,82 +294,17 @@ class BLEService {
         proximityUUID: _APP_BEACON_UUID,
       )];
 
-      // Variables to track which session we've detected
-      String? detectedSessionId;
-      String? detectedMode;
-      Map<String, dynamic>? detectedSessionData;
-
-      // Start ranging
+      // Start ranging with optimized callback handling
       _rangingSubscription = flutter_beacon.flutterBeacon.ranging(regions).listen(
         (flutter_beacon.RangingResult result) {
-          // Check if any beacons detected
-          final beacons = result.beacons;
-          final wasDetected = _isBeaconDetected;
-          _isBeaconDetected = beacons.isNotEmpty;
-          
-          // Record the current time whenever we detect beacons
-          if (_isBeaconDetected) {
-            _lastDetectionTime = DateTime.now();
-            
-            // Cancel any pending proximity lost timer as we're getting a signal
-            _proximityLostTimer?.cancel();
-            _proximityLostTimer = null;
-          }
-          
-          // Handle detection logic
-          if (_isBeaconDetected) {
-            // Get the nearest beacon
-            final nearestBeacon = beacons.first;
-            
-            // Find the session data based on major and minor
-            final foundSession = activeSessions.firstWhere(
-              (session) => 
-                session['beaconMajor'] == nearestBeacon.major && 
-                session['beaconMinor'] == nearestBeacon.minor,
-              orElse: () => <String, dynamic>{},
-            );
-            
-            if (foundSession.isNotEmpty) {
-              detectedSessionId = foundSession['sessionId'];
-              detectedMode = foundSession['beaconMode'] ?? 'entry';
-              detectedSessionData = foundSession;
-              
-              if (!wasDetected) {
-                _logger.i('Beacon detected for session: $detectedSessionId, mode: $detectedMode');
-                _firstDetectionTime = DateTime.now();
-                
-                // Notify about beacon detection
-                onBeaconDetected(detectedSessionId!, detectedMode!, detectedSessionData!);
-              }
-              
-              // Check if detection threshold is met
-              if (_firstDetectionTime != null) {
-                final detectionDuration = DateTime.now().difference(_firstDetectionTime!).inMilliseconds / 1000.0;
-                if (detectionDuration >= _detectionThresholdInSeconds && !_hasMetDetectionThreshold) {
-                  _hasMetDetectionThreshold = true;
-                  _logger.i('Beacon detection threshold met: $detectionDuration seconds');
-                  
-                  // Notify that threshold is met
-                  onBeaconThresholdMet(detectedSessionId!, detectedMode!, detectedSessionData!);
-                }
-              }
-            }
-          } else {
-            // If beacon is not detected, start a proximity lost timer
-            // only if we previously had detected a beacon AND met the threshold
-            if (wasDetected && _hasMetDetectionThreshold && _proximityLostTimer == null) {
-              _logger.i('📡 Signal temporarily lost, starting proximity window timer (${_proximityWindowInSeconds}s)');
-              _proximityLostTimer = Timer(Duration(seconds: _proximityWindowInSeconds.toInt()), () {
-                _logger.i('📡 Proximity window expired - no signal detected within ${_proximityWindowInSeconds} seconds');
-                // Only reset if we haven't detected a new signal during this time
-                if (!_isBeaconDetected) {
-                  _hasMetDetectionThreshold = false;
-                  _firstDetectionTime = null;
-                  onBeaconLost();
-                }
-              });
-            }
-          }
+          // Defer heavy processing to avoid blocking the scan callback
+          scheduleMicrotask(() => _processRangingResult(
+            result, 
+            activeSessions, 
+            onBeaconDetected, 
+            onBeaconThresholdMet, 
+            onBeaconLost
+          ));
         },
         onError: (error) {
           _logger.e('Error ranging beacons: $error');
@@ -378,6 +317,82 @@ class BLEService {
     } catch (e) {
       _logger.e('Error starting beacon scanning: $e');
       return false;
+    }
+  }
+
+  /// Process ranging results in a microtask to keep scan callback lightweight
+  void _processRangingResult(
+    flutter_beacon.RangingResult result,
+    List<Map<String, dynamic>> activeSessions,
+    Function(String sessionId, String mode, Map<String, dynamic> sessionData) onBeaconDetected,
+    Function(String sessionId, String mode, Map<String, dynamic> sessionData) onBeaconThresholdMet,
+    Function() onBeaconLost,
+  ) {
+    // Check if any beacons detected
+    final beacons = result.beacons;
+    final wasDetected = _isBeaconDetected;
+    _isBeaconDetected = beacons.isNotEmpty;
+    
+    // Record the current time whenever we detect beacons
+    if (_isBeaconDetected) {
+      // Cancel any pending proximity lost timer as we're getting a signal
+      _proximityLostTimer?.cancel();
+      _proximityLostTimer = null;
+    }
+    
+    // Handle detection logic
+    if (_isBeaconDetected) {
+      // Get the nearest beacon (beacons are sorted by proximity)
+      final nearestBeacon = beacons.first;
+      
+      // Find the session data based on major and minor
+      final foundSession = activeSessions.firstWhere(
+        (session) => 
+          session['beaconMajor'] == nearestBeacon.major && 
+          session['beaconMinor'] == nearestBeacon.minor,
+        orElse: () => <String, dynamic>{},
+      );
+      
+      if (foundSession.isNotEmpty) {
+        final detectedSessionId = foundSession['sessionId'] as String;
+        final detectedMode = foundSession['beaconMode'] as String? ?? 'entry';
+        final detectedSessionData = foundSession;
+        
+        if (!wasDetected) {
+          _logger.i('Beacon detected for session: $detectedSessionId, mode: $detectedMode, RSSI: ${nearestBeacon.rssi}');
+          _firstDetectionTime = DateTime.now();
+          
+          // Notify about beacon detection
+          onBeaconDetected(detectedSessionId, detectedMode, detectedSessionData);
+        }
+        
+        // Check if detection threshold is met
+        if (_firstDetectionTime != null) {
+          final detectionDuration = DateTime.now().difference(_firstDetectionTime!).inMilliseconds / 1000.0;
+          if (detectionDuration >= _detectionThresholdInSeconds && !_hasMetDetectionThreshold) {
+            _hasMetDetectionThreshold = true;
+            _logger.i('Beacon detection threshold met: ${detectionDuration.toStringAsFixed(3)} seconds');
+            
+            // Notify that threshold is met
+            onBeaconThresholdMet(detectedSessionId, detectedMode, detectedSessionData);
+          }
+        }
+      }
+    } else {
+      // If beacon is not detected, start a proximity lost timer
+      // only if we previously had detected a beacon AND met the threshold
+      if (wasDetected && _hasMetDetectionThreshold && _proximityLostTimer == null) {
+        _logger.i('📡 Signal temporarily lost, starting proximity window timer (${_proximityWindowInSeconds}s)');
+        _proximityLostTimer = Timer(Duration(seconds: _proximityWindowInSeconds.toInt()), () {
+          _logger.i('📡 Proximity window expired - no signal detected within ${_proximityWindowInSeconds} seconds');
+          // Only reset if we haven't detected a new signal during this time
+          if (!_isBeaconDetected) {
+            _hasMetDetectionThreshold = false;
+            _firstDetectionTime = null;
+            onBeaconLost();
+          }
+        });
+      }
     }
   }
 
@@ -400,7 +415,6 @@ class BLEService {
     _isBeaconDetected = false;
     _hasMetDetectionThreshold = false;
     _firstDetectionTime = null;
-    _lastDetectionTime = null;
     
     _logger.i('Stopped scanning for beacons');
   }

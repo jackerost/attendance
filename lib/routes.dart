@@ -12,6 +12,7 @@ class AppRoutes {
   static const String sessionPage = '/session-page';
   static const String bulkSelfScan = '/bulk-self-scan';
   static const String studentSelfScan = '/student-self-scan';
+  static const String beaconTestHarness = '/beacon-test-harness';
   
   // Optional: Define route names for more context (useful for logging)
   static const Map<String, String> routeNames = {
@@ -23,6 +24,7 @@ class AppRoutes {
     courseList: 'Course Listing Page',
     sessionPage: 'Session Manager Page',
     bulkSelfScan: 'Bulk Self-Scan Page',
-    studentSelfScan: 'Student Self-Scan Page'
+    studentSelfScan: 'Student Self-Scan Page',
+    beaconTestHarness: 'Beacon Test Harness Page'
   };
 }

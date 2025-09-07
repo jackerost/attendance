@@ -393,6 +393,32 @@ class HomePageState extends State<HomePage> {
                           },
                         ),
 
+                        // Beacon Test Harness - for development/testing
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.bluetooth_searching),
+                            label: const Text('Beacon Test Harness'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF9C27B0), // Purple color for testing
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () {
+                              Navigator.pushNamed(context, AppRoutes.beaconTestHarness);
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Test beacon detection latency and performance.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Color.fromARGB(255, 114, 114, 114),
+                          ),
+                        ),
+
                         ],
                       ),
                     ),

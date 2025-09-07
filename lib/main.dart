@@ -13,12 +13,12 @@ import 'pages/course_list_page.dart';
 import 'pages/session_manager_page.dart';
 import 'pages/bulk_self_scan_page.dart';
 import 'pages/student_self_scan_page.dart';
+import 'pages/beacon_test_harness_page.dart';
 
 // Import services
 import 'services/firebase_auth_service.dart';
 
 // Import utils
-import 'utils/constants.dart';
 import 'routes.dart' as routes;
 
 void main() async {
@@ -96,6 +96,7 @@ class MyApp extends StatelessWidget {
             return BulkSelfScanPage(sessionId: sessionId);
           },
           routes.AppRoutes.studentSelfScan: (context) => const StudentSelfScanPage(),
+          routes.AppRoutes.beaconTestHarness: (context) => const BeaconTestHarnessPage(),
         },
         // If route isn't found, redirect to login
         onUnknownRoute: (settings) {
@@ -136,19 +137,4 @@ class AuthGate extends StatelessWidget {
       },
     );
   }
-}
-
-// Adding a class to hold route constants for easy reference
-class AppRoutes {
-  static const String login = '/login';
-  static const String home = '/home';
-  static const String nfcScanner = '/nfc-scanner';
-  static const String selector = '/select-page';
-  static const String courseList = '/course-page';
-  static const String sessionPage = '/session-page';
-  static const String bulkSelfScan = '/bulk-self-scan';
-  static const String studentSelfScan = '/student-self-scan';
-  
-  // Prevent instantiation
-  AppRoutes._();
 }
