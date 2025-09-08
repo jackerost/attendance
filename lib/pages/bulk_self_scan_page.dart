@@ -37,6 +37,9 @@ class _BulkSelfScanPageState extends State<BulkSelfScanPage> with WidgetsBinding
   Timer? _cooldownTimer;
   bool _inCooldown = false;
   
+  // Attendance listener subscription
+  StreamSubscription<QuerySnapshot>? _attendanceSubscription;
+  
   // List of scanned students
   final List<dynamic> _scannedStudents = [];
   
@@ -51,6 +54,8 @@ class _BulkSelfScanPageState extends State<BulkSelfScanPage> with WidgetsBinding
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // Cancel attendance subscription to stop ongoing reads
+    _attendanceSubscription?.cancel();
     // Stop BLE broadcasting when leaving the page
     _stopBroadcasting();
     _cooldownTimer?.cancel();
@@ -157,7 +162,8 @@ class _BulkSelfScanPageState extends State<BulkSelfScanPage> with WidgetsBinding
   
   void _setupAttendanceListener() {
     // Set up a listener for attendance records for this session
-    _firestore
+    // Set up real-time listener for attendance updates
+    _attendanceSubscription = _firestore
         .collection('attendance')
         .where('sessionId', isEqualTo: widget.sessionId)
         .orderBy('entryTimestamp', descending: true)

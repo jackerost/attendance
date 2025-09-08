@@ -6,6 +6,8 @@ import 'package:dchs_flutter_beacon/dchs_flutter_beacon.dart' as flutter_beacon;
 import 'package:logger/logger.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 class BeaconTestHarnessPage extends StatefulWidget {
   const BeaconTestHarnessPage({super.key});
@@ -31,6 +33,27 @@ class _BeaconTestHarnessPageState extends State<BeaconTestHarnessPage> {
   int? _lastDetectedMinor;
   int? _lastDetectedRSSI;
   DateTime? _lastDetectionTime;
+  
+  // Rolling identifier validation
+  final Duration _rollingInterval = const Duration(seconds: 10);
+  
+  /// Generates a time-based rolling identifier for validation (same as BLEService)
+  int _generateRollingMinor(String sessionId, String mode) {
+    final int timeSlot = DateTime.now().millisecondsSinceEpoch ~/ _rollingInterval.inMilliseconds;
+    final String input = '$sessionId:$timeSlot:$mode';
+    final List<int> bytes = utf8.encode(input);
+    final Digest digest = sha256.convert(bytes);
+    final int hashValue = (digest.bytes[0] << 8) | digest.bytes[1];
+    final int rollingPart = hashValue & 0x7FFF;
+    final int modeBit = (mode == 'entry') ? 0 : 1;
+    return (modeBit << 15) | rollingPart;
+  }
+  
+  /// Checks if a beacon's rolling minor ID is valid
+  bool _isValidRollingMinor(int detectedMinor, String sessionId, String mode) {
+    final int expectedMinor = _generateRollingMinor(sessionId, mode);
+    return detectedMinor == expectedMinor;
+  }
   
   @override
   void initState() {
@@ -205,7 +228,7 @@ class _BeaconTestHarnessPageState extends State<BeaconTestHarnessPage> {
     }
   }
 
-  void _processRangingResult(flutter_beacon.RangingResult result) {
+  void _processRangingResult(flutter_beacon.RangingResult result) async {
     final now = DateTime.now();
     final beacons = result.beacons;
     
@@ -213,7 +236,36 @@ class _BeaconTestHarnessPageState extends State<BeaconTestHarnessPage> {
       final nearestBeacon = beacons.first;
       final timeToDetection = now.difference(_scanStartTime!);
       
-      // Check if this is a new beacon detection (different identity or significant time gap)
+      // Validate against active sessions with rolling identifiers
+      String? validatedSessionId;
+      String? validatedMode;
+      
+      try {
+        // Load active sessions for validation
+        final snapshot = await FirebaseFirestore.instance
+            .collection('sessions')
+            .where('status', isEqualTo: 'active')
+            .get();
+        
+        for (final doc in snapshot.docs) {
+          final data = doc.data();
+          final beaconMajor = data['beaconMajor'] as int?;
+          final beaconMode = data['beaconMode'] as String?;
+          
+          if (beaconMajor == nearestBeacon.major && beaconMode != null) {
+            // Validate rolling minor ID
+            if (_isValidRollingMinor(nearestBeacon.minor, doc.id, beaconMode)) {
+              validatedSessionId = doc.id;
+              validatedMode = beaconMode;
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        _logger.w('Failed to validate session: $e');
+      }
+      
+      // Check if this is a new beacon detection
       final isNewDetection = _lastDetectedUUID != nearestBeacon.proximityUUID ||
                             _lastDetectedMajor != nearestBeacon.major ||
                             _lastDetectedMinor != nearestBeacon.minor ||
@@ -231,8 +283,13 @@ class _BeaconTestHarnessPageState extends State<BeaconTestHarnessPage> {
           accuracy: nearestBeacon.accuracy,
         );
         
-        _logger.i('📍 Beacon detected: ${event.toString()}');
-        print('📍 Beacon detected: ${event.toString()}');
+        // Enhanced logging with validation results
+        final validationStatus = validatedSessionId != null 
+            ? '✅ Valid session: $validatedSessionId ($validatedMode)' 
+            : '❌ Invalid/expired rolling ID';
+        
+        _logger.i('📍 Beacon detected: ${event.toString()} - $validationStatus');
+        print('📍 Beacon detected: ${event.toString()} - $validationStatus');
         
         setState(() {
           _detectionEvents.add(event);

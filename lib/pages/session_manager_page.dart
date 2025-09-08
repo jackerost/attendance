@@ -438,6 +438,14 @@ class SessionManagerState extends State<SessionManagerPage> {
         'lecturerEmail': _lecturerUid, // Store UID in 'lecturerEmail' field
         'createdAt': FieldValue.serverTimestamp(),
         'attendees': [], // Initialize with an empty array of attendees
+        
+        // Centralized beacon rotation fields
+        'beaconMinorCurrent': 0,
+        'beaconMinorPool': [],
+        'beaconPoolIndex': 0,
+        'beaconIsRotating': false,
+        'beaconLastRotated': null,
+        'beaconRotationInterval': 10000, // 10 seconds
       });
       _showSuccessSnackBar('Session "$title" created successfully!');
       _loadSessions(); // Reload sessions to include the new one
