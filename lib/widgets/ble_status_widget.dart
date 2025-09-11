@@ -39,7 +39,7 @@ class BLEStatusWidget extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    isGracePeriod ? 'Grace Period Active' : 'BLE Signal Detected',
+                    isGracePeriod ? 'Grace Period Active' : 'Proximity Confirmed',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: isGracePeriod ? Colors.amber.shade700 : Colors.green,
@@ -48,7 +48,7 @@ class BLEStatusWidget extends StatelessWidget {
                   Text(
                     isGracePeriod 
                       ? 'You can still scan within the grace period'
-                      : 'Ready to scan your NFC card',
+                      : 'Proximity confirmed. Ready to scan your NFC card',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey.shade800,
@@ -78,7 +78,7 @@ class BLEStatusWidget extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
                   Text(
-                    'BLE Signal Detecting',
+                    'Confirming Proximity...',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.blue,
@@ -115,14 +115,14 @@ class BLEStatusWidget extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
                   Text(
-                    'No BLE Signal Detected',
+                    'Proximity Not Confirmed',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Colors.red,
                     ),
                   ),
                   Text(
-                    'Approach lecturer device closer',
+                    'Move closer to the lecturer device',
                     style: TextStyle(
                       fontSize: 12,
                       color: Colors.grey,

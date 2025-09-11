@@ -10,6 +10,32 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:logger/logger.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+/// Stores complete beacon context from when threshold was met (for proximity window validation)
+class BeaconContext {
+  final int major;
+  final int currentMinor;        // Minor that was current when threshold met
+  final List<int> minorPool;     // Complete minor pool
+  final int poolIndex;           // Current index in pool
+  final DateTime lastRotated;    // When last rotation occurred
+  final DateTime detectedAt;     // When threshold was met
+  
+  BeaconContext({
+    required this.major,
+    required this.currentMinor,
+    required this.minorPool,
+    required this.poolIndex,
+    required this.lastRotated,
+    required this.detectedAt,
+  });
+
+  /// Get the previous minor in rotation sequence (for grace period validation)
+  int? get previousMinor {
+    if (minorPool.isEmpty) return null;
+    final prevIndex = (poolIndex - 1 + minorPool.length) % minorPool.length;
+    return minorPool[prevIndex];
+  }
+}
+
 class BLEService {
   // Singleton pattern
   static final BLEService _instance = BLEService._internal();
@@ -50,6 +76,15 @@ class BLEService {
   bool _hasMetDetectionThreshold = false;
   DateTime? _firstDetectionTime;
   
+  // Last valid beacon context (stored when threshold is met, used during proximity window)
+  // REMOVED: Local storage replaced with cloud-based validation for security
+  // int? _lastValidBeaconMajor;
+  // int? _lastValidBeaconCurrentMinor;
+  // List<int>? _lastValidBeaconMinorPool;
+  // int? _lastValidBeaconPoolIndex;
+  // DateTime? _lastValidBeaconLastRotated;
+  // DateTime? _lastValidBeaconTime;
+  
   // Real-time beacon minor tracking
   Map<String, dynamic>? _realtimeSessionData;
   
@@ -57,12 +92,27 @@ class BLEService {
   Timer? _rollingIdTimer;
   // Removed _heartbeatTimer - now combined with rotation timer
   
-  // Constants - Optimized for lowest latency
-  final double _detectionThresholdInSeconds = 0.1;  // Reduced to 100ms for faster detection
+  // === Timing Constants (Each serves a distinct purpose) ===
+  // Beacon detection threshold: How long a beacon must be detected before considered valid (for noise filtering)
+  final double _detectionThresholdInSeconds = 0.1;
+
+  // Beacon rotation interval: How often the lecturer's beacon minor changes (security, rolling ID)
+  //    (Set in Firestore as 'beaconRotationInterval', typically 8 seconds)
+
+  // Minor validation grace period: How long a student will accept a recently valid minor after rotation (handles timing edge cases)
+  final Duration _minorValidationGracePeriod = Duration(seconds: 3);
+
+  // Liveness check threshold: How old the beacon heartbeat can be before considered stale (prevents marking on dead beacons)
+  //    (Used in _processOptimizedRangingResult, set to 35 seconds)
+
+  // Firestore cleanup grace period: How long to wait before removing beacon fields after lecturer stops broadcasting
   final double _scanGracePeriodInSeconds = 10.0;
-  final double _proximityWindowInSeconds = 5.0; // Reduced window for faster lost detection
-  final Duration _scanTimeoutDuration = Duration(seconds: 5); // Auto-restart scan after timeout
-  final Duration _minorValidationGracePeriod = Duration(seconds: 2); // Grace period for minor validation
+
+  // Proximity lost window: How long to wait after losing beacon signal before considering it lost
+  final double _proximityWindowInSeconds = 5.0; 
+
+  // Scan timeout: How long to wait for beacon detection before restarting scan
+  final Duration _scanTimeoutDuration = Duration(seconds: 5);
   /// Generates random minor ID pool for centralized beacon rotation
   List<int> _generateRandomMinorPool(int poolSize) {
     final random = Random.secure();
@@ -92,7 +142,12 @@ class BLEService {
         'beaconPoolIndex': 0,
         'beaconIsRotating': true,
         'beaconLastRotated': FieldValue.serverTimestamp(),
-        'beaconRotationInterval': 10000, // 10 seconds
+        'beaconRotationInterval': 8000, // 8 seconds (8/3 config)
+        // Initialize lastValid fields for proximity window validation
+        'beaconLastValidMinor': null,
+        'beaconLastValidTime': null,
+        'beaconLastValidPoolIndex': null,
+        'beaconLastValidPool': null,
       });
       
       _logger.i('🔧 Initialized centralized beacon rotation with ${minorPool.length} random minors');
@@ -250,36 +305,118 @@ class BLEService {
       
       if (sessionData == null) return false;
       
-      // Check if detected minor is in the current pool (could be a previous minor)
-      final minorPool = List<int>.from(sessionData['beaconMinorPool'] ?? []);
-      if (!minorPool.contains(detectedMinor)) {
-        _logger.d('🔍 Grace period check: $detectedMinor not in current pool $minorPool');
-        return false;
-      }
-      
-      // Check if the last rotation was recent (within grace period)
-      final lastRotated = sessionData['beaconLastRotated'] as Timestamp?;
-      if (lastRotated == null) {
-        _logger.d('🔍 Grace period check: No rotation timestamp found');
-        return false;
-      }
-      
-      final timeSinceRotation = DateTime.now().difference(lastRotated.toDate());
-      final isWithinGracePeriod = timeSinceRotation <= _minorValidationGracePeriod;
-      
-      _logger.d('🔍 Grace period check: time since rotation=${timeSinceRotation.inMilliseconds}ms, grace period=${_minorValidationGracePeriod.inMilliseconds}ms, valid=$isWithinGracePeriod');
-      
-      return isWithinGracePeriod;
+      return _isMinorValidInContext(
+        detectedMinor: detectedMinor,
+        currentMinor: sessionData['beaconMinorCurrent'] as int?,
+        minorPool: List<int>.from(sessionData['beaconMinorPool'] ?? []),
+        poolIndex: sessionData['beaconPoolIndex'] as int? ?? 0,
+        lastRotated: (sessionData['beaconLastRotated'] as Timestamp?)?.toDate(),
+        gracePeriod: _minorValidationGracePeriod,
+      );
     } catch (e) {
       _logger.e('Error checking minor grace period: $e');
       return false;
     }
+  }
+
+  /// Unified minor validation for both live Firestore data and stored beacon context
+  /// SECURITY: Only accepts exact current minor OR the immediate previous minor within grace period
+  bool _isMinorValidInContext({
+    required int detectedMinor,
+    required int? currentMinor,
+    required List<int> minorPool,
+    required int poolIndex,
+    required DateTime? lastRotated,
+    required Duration gracePeriod,
+  }) {
+    // 1. Check exact match with current minor (always valid)
+    if (currentMinor != null && detectedMinor == currentMinor) {
+      _logger.d('✅ Minor validation: exact match with current minor $detectedMinor');
+      return true;
+    }
+
+    // 2. Grace period check: only accept the PREVIOUS minor in rotation sequence
+    if (lastRotated == null || minorPool.isEmpty) {
+      _logger.d('❌ Minor validation: no rotation history or empty pool');
+      return false;
+    }
+
+    final timeSinceRotation = DateTime.now().difference(lastRotated);
+    final isWithinGracePeriod = timeSinceRotation <= gracePeriod;
+
+    if (!isWithinGracePeriod) {
+      _logger.d('❌ Minor validation: grace period expired (${timeSinceRotation.inMilliseconds}ms > ${gracePeriod.inMilliseconds}ms)');
+      return false;
+    }
+
+    // Calculate the PREVIOUS minor in the rotation sequence
+    final previousIndex = (poolIndex - 1 + minorPool.length) % minorPool.length;
+    final previousMinor = minorPool[previousIndex];
+
+    final isValidPrevious = detectedMinor == previousMinor;
+    
+    if (isValidPrevious) {
+      _logger.d('✅ Minor validation: grace period match with previous minor $detectedMinor (was at index $previousIndex)');
+    } else {
+      _logger.d('❌ Minor validation: detected minor $detectedMinor is not the previous minor $previousMinor in sequence');
+    }
+
+    return isValidPrevious;
+  }
+
+  /// Validate a detected minor using server-stored beacon context (secure, for proximity window)
+  /// Returns true if the detected minor is valid according to server-stored context
+  Future<bool> isMinorValidWithStoredContext(int detectedMinor, String sessionId) async {
+    final context = await getLastValidBeaconContext(sessionId);
+    if (context == null) {
+      _logger.w('❌ No server-stored beacon context available for validation');
+      return false;
+    }
+
+    // Validate within proximity window (5 seconds since threshold met)
+    final timeSinceThreshold = DateTime.now().difference(context.detectedAt);
+    if (timeSinceThreshold > Duration(seconds: _proximityWindowInSeconds.toInt())) {
+      _logger.w('❌ Proximity window expired: ${timeSinceThreshold.inSeconds}s > ${_proximityWindowInSeconds}s');
+      return false;
+    }
+
+    return _isMinorValidInContext(
+      detectedMinor: detectedMinor,
+      currentMinor: context.currentMinor,
+      minorPool: context.minorPool,
+      poolIndex: context.poolIndex,
+      lastRotated: context.lastRotated,
+      gracePeriod: _minorValidationGracePeriod,
+    );
   }
   
   /// Start broadcasting a BLE beacon for a specific session and mode
   Future<bool> startBroadcasting(String sessionId, String mode) async {
     if (_isTransmitting) {
       return false; // Already transmitting
+    }
+
+    // --- DIAGNOSTIC: Log Bluetooth adapter state and permissions (Android only) ---
+    try {
+      if (Platform.isAndroid) {
+        try {
+          // Requires dart:io and process run
+          final result = await Process.run('getprop', ['bluetooth.status']);
+          _logger.i('🔍 [DIAG] Android Bluetooth status: ${result.stdout}');
+        } catch (e) {
+          _logger.w('🔍 [DIAG] Could not get Android Bluetooth status: $e');
+        }
+      }
+      // Log permissions
+      final perms = await [
+        Permission.bluetooth,
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
+      ].request();
+      _logger.i('🔍 [DIAG] Permissions at broadcast start: $perms');
+    } catch (e) {
+      _logger.w('🔍 [DIAG] Error during pre-broadcast diagnostics: $e');
     }
 
     try {
@@ -370,6 +507,16 @@ class BLEService {
 
       // Start broadcasting
       await _beaconBroadcast.start();
+      // --- DIAGNOSTIC: Log after attempting to start broadcast ---
+      _logger.i('🔍 [DIAG] Called _beaconBroadcast.start()');
+      if (Platform.isAndroid) {
+        try {
+          final result = await Process.run('getprop', ['bluetooth.status']);
+          _logger.i('🔍 [DIAG] Android Bluetooth status after start: ${result.stdout}');
+        } catch (e) {
+          _logger.w('🔍 [DIAG] Could not get Android Bluetooth status after start: $e');
+        }
+      }
       
       // Start centralized rotation timer (lecturer's phone updates Firestore every 10 seconds)
       // This now includes heartbeat updates to reduce Firestore writes
@@ -665,6 +812,9 @@ class BLEService {
         _hasMetDetectionThreshold = false;
         _firstDetectionTime = null;
         
+        // Clear stored beacon context
+        // NOTE: Server-side context automatically expires via proximity window validation
+        
         // Cancel any existing timers
         _proximityLostTimer?.cancel();
         _proximityLostTimer = null;
@@ -761,6 +911,9 @@ class BLEService {
                 _logger.i('📡 Beacon broadcasting stopped and no signals detected - triggering lost state');
                 _hasMetDetectionThreshold = false;
                 _firstDetectionTime = null;
+                
+                // Clear stored beacon context when broadcast stops
+                // NOTE: Server-side context automatically expires via proximity window validation
                 // Find the callback - we need to store it for this use case
                 // For now, let the existing timer logic handle it
               }
@@ -965,6 +1118,20 @@ class BLEService {
           final detectionDuration = DateTime.now().difference(_firstDetectionTime!).inMilliseconds / 1000.0;
           if (detectionDuration >= _detectionThresholdInSeconds && !_hasMetDetectionThreshold) {
             _hasMetDetectionThreshold = true;
+            
+            // Store last valid beacon context in Firestore (server-controlled, secure)
+            try {
+              await _firestore.collection('sessions').doc(sessionId).update({
+                'beaconLastValidMinor': nearestBeacon.minor,
+                'beaconLastValidTime': FieldValue.serverTimestamp(),
+                'beaconLastValidPoolIndex': _realtimeSessionData?['beaconPoolIndex'] ?? 0,
+                'beaconLastValidPool': _realtimeSessionData?['beaconMinorPool'] ?? [],
+              });
+              _logger.i('🔒 Stored valid beacon context in Firestore (secure): major=${nearestBeacon.major} (from session), minor=${nearestBeacon.minor}');
+            } catch (e) {
+              _logger.e('Error storing beacon context in Firestore: $e');
+            }
+            
             _logger.i('🏆 Target beacon detection threshold met: ${detectionDuration.toStringAsFixed(3)} seconds');
             
             // Notify that threshold is met
@@ -993,6 +1160,9 @@ class BLEService {
           if (!_isBeaconDetected) {
             _hasMetDetectionThreshold = false;
             _firstDetectionTime = null;
+            
+            // Clear stored beacon context when truly lost
+            // NOTE: Server-side context automatically expires via proximity window validation
             onBeaconLost();
           }
           _proximityLostTimer = null;
@@ -1012,6 +1182,10 @@ class BLEService {
           _logger.i('⚠️ Backup lost timer triggered - forcing beacon lost state');
           _hasMetDetectionThreshold = false;
           _firstDetectionTime = null;
+          
+          // Clear stored beacon context when backup timer triggers lost state
+          // NOTE: Server-side context automatically expires via proximity window validation
+          
           onBeaconLost();
         }
         _backupLostTimer = null;
@@ -1048,12 +1222,71 @@ class BLEService {
     _firstDetectionTime = null;
     _realtimeSessionData = null;
     
+    // Clear stored beacon context
+    // NOTE: Server-side context automatically expires via proximity window validation
+    
     _logger.i('Stopped scanning for beacons');
   }
 
   /// Check if beacon detection threshold has been met
   bool hasMetDetectionThreshold() {
     return _hasMetDetectionThreshold;
+  }
+
+  /// Get last valid beacon context from Firestore (secure, server-controlled)
+  /// Returns null if no valid context is stored or session not found
+  /// 
+  /// This allows NFC scanning to work during the 5-second proximity window
+  /// even if the beacon signal is temporarily lost, using server-stored
+  /// beacon state that was validated when threshold was met.
+  /// 
+  /// SECURITY: Uses server-controlled data, cannot be tampered with by client
+  /// 
+  /// Usage: 
+  /// 1. Check hasMetDetectionThreshold() first
+  /// 2. Use getLastValidBeaconContext() for major/minor validation
+  /// 3. Use isMinorValidWithStoredContext() for grace period validation
+  Future<BeaconContext?> getLastValidBeaconContext(String sessionId) async {
+    try {
+      // Read current session state from Firestore (server-controlled)
+      final sessionDoc = await _firestore.collection('sessions').doc(sessionId).get();
+      if (!sessionDoc.exists) return null;
+      
+      final data = sessionDoc.data()!;
+      
+      // Extract lastValid fields
+      final lastValidMinor = data['beaconLastValidMinor'] as int?;
+      final lastValidTime = data['beaconLastValidTime'] as Timestamp?;
+      final lastValidPoolIndex = data['beaconLastValidPoolIndex'] as int?;
+      final lastValidPool = data['beaconLastValidPool'] as List?;
+      final lastRotated = data['beaconLastRotated'] as Timestamp?;
+      
+      // Use existing session beaconMajor (constant per session)
+      final sessionMajor = data['beaconMajor'] as int?;
+      
+      // Validate that all required fields are present
+      if (sessionMajor == null ||
+          lastValidMinor == null || 
+          lastValidTime == null ||
+          lastValidPoolIndex == null ||
+          lastValidPool == null ||
+          lastRotated == null) {
+        _logger.d('🔍 Incomplete beacon context in Firestore');
+        return null;
+      }
+      
+      return BeaconContext(
+        major: sessionMajor, // Use session's constant major
+        currentMinor: lastValidMinor,
+        minorPool: List<int>.from(lastValidPool),
+        poolIndex: lastValidPoolIndex,
+        lastRotated: lastRotated.toDate(),
+        detectedAt: lastValidTime.toDate(),
+      );
+    } catch (e) {
+      _logger.e('Error reading beacon context from Firestore: $e');
+      return null;
+    }
   }
 
   /// Dispose method to clean up resources

@@ -446,6 +446,12 @@ class SessionManagerState extends State<SessionManagerPage> {
         'beaconIsRotating': false,
         'beaconLastRotated': null,
         'beaconRotationInterval': 10000, // 10 seconds
+        
+        // Cloud-based beacon validation fields (replaces insecure local storage)
+        'beaconLastValidMinor': null,
+        'beaconLastValidTime': null,
+        'beaconLastValidPoolIndex': null,
+        'beaconLastValidPool': null,
       });
       _showSuccessSnackBar('Session "$title" created successfully!');
       _loadSessions(); // Reload sessions to include the new one
